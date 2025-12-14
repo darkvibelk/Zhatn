@@ -772,12 +772,14 @@ function App() {
         </div>
 
         {/* FOOTER (External) */}
+        {/* FOOTER (External) */}
         <div className="mt-6 text-center space-y-2 relative z-10">
+          <p className="text-[10px] text-white/50 font-medium tracking-widest uppercase mb-2">Zhatn - Future of Privacy</p>
           <p className="text-[10px] text-white/40 font-light tracking-wider">v1.0 — 7 Days Built</p>
           <p className="text-[10px] text-white/40 font-light">
-            Deployed by <a href="#" className="font-medium text-white/60 hover:text-red-400 transition-colors">Dark Vibe</a>
+            Deployed by <a href="https://darkvibelk.pages.dev/" target="_blank" rel="noopener noreferrer" className="font-medium text-white/60 hover:text-red-400 transition-colors">Dark Vibe</a>
           </p>
-          <a href="#" className="text-[10px] text-white/30 hover:text-red-400 transition-colors block mt-2">
+          <a href="https://darkvibelk.pages.dev/contact?service=zhatn" target="_blank" rel="noopener noreferrer" className="text-[10px] text-white/30 hover:text-red-400 transition-colors block mt-2">
             Send Suggestions & Feedback
           </a>
         </div>
