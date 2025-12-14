@@ -27,5 +27,21 @@ Requires a GitHub account.
     - Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
 5.  Click **Deploy**.
 
+## Option C: Deploy to Cloudflare Pages (Fast & Free)
+This is excellent for performance.
+
+1.  **Push to GitHub** (You've already done this).
+2.  Log in to the [Cloudflare Dashboard](https://dash.cloudflare.com) > **Workers & Pages**.
+3.  Click **Create Application** > **Pages** > **Connect to Git**.
+4.  Select your `Zhatn` repository.
+5.  **Build Settings:**
+    - **Framework Preset:** Select `Vite`.
+    - **Build command:** `npm run build`
+    - **Output directory:** `dist`
+6.  **Environment Variables (Crucial):**
+    - Click **Environment variables (advanced)**.
+    - Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from your local `.env` file.
+7.  Click **Save and Deploy**.
+
 ## 🛑 Critical Note
-Since this is a Single Page App (SPA), I have already created `vercel.json` and `netlify.toml` configuration files to ensure routing works correctly (so refreshing the page doesn't give a 404 error).
+Since this is a Single Page App (SPA), I have already included a `_redirects` file in the `public` folder. This ensures that Cloudflare handles routing correctly (e.g., refreshing the page won't cause a 404 error).
