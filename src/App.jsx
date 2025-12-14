@@ -1,849 +1,1071 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { supabase } from './supabaseClient';
-import {
-  User, Lock, Phone, Camera, Send, MoreVertical,
-  Search, Phone as PhoneIcon, Video, Smile, Paperclip,
-  Check, ArrowLeft, LogOut, Image as ImageIcon, X, Play
-} from 'lucide-react';
-import { clsx } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import React, { useState, useEffect, useRef } from 'react';
+import { User, Phone as PhoneIcon, Video, MoreVertical, Send, Paperclip, Mic, Search, LogOut, ArrowLeft, X, Check, CheckCheck, Clock, Plus, Image as ImageIcon, Trash2, Eraser } from 'lucide-react';
+import { createClient } from '@supabase/supabase-js';
+import { clsx } from "clsx";
+import { twMerge } from "tailwind-merge";
 
-// --- Utility Functions ---
+// --- Utility: Tailwind Class Merge ---
 function cn(...inputs) {
   return twMerge(clsx(inputs));
 }
 
-// --- Dummy Data ---
-const dummyContacts = [
-  { id: 1, name: "Alice Vane", status: "online", lastMsg: "See you at the club?", time: "2 min", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80" },
-  { id: 2, name: "Marcus 'Neo' Thorne", status: "offline", lastMsg: "The package is secure.", time: "1 hr", avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=150&q=80" },
-  { id: 3, name: "Sarah Connor", status: "online", lastMsg: "No fate but what we make.", time: "3 hr", avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80" },
-  { id: 4, name: "K. Silverhand", status: "busy", lastMsg: "Wake up, Samurai.", time: "Yesterday", avatar: "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=150&q=80" },
-  { id: 5, name: "Jinx", status: "offline", lastMsg: "Boom?", time: "Yesterday", avatar: "https://images.unsplash.com/photo-1517849845537-4d257902454a?auto=format&fit=crop&w=150&q=80" },
+// --- Supabase Client ---
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// --- CONSTANTS ---
+const COUNTRIES = [
+  { code: 'US', dial: '+1', flag: '🇺🇸', len: 10 },
+  { code: 'GB', dial: '+44', flag: '🇬🇧', len: 10 },
+  { code: 'LK', dial: '+94', flag: '🇱🇰', len: 9 },
+  { code: 'IN', dial: '+91', flag: '🇮🇳', len: 10 },
+  { code: 'AE', dial: '+971', flag: '🇦🇪', len: 9 },
+  { code: 'AU', dial: '+61', flag: '🇦🇺', len: 9 },
+  { code: 'CA', dial: '+1', flag: '🇨🇦', len: 10 },
 ];
 
-const initialMessages = [
-  { id: 1, senderId: 1, text: "Hey! Are you ready for tonight?", time: "20:01", type: 'text' },
-  { id: 2, senderId: 'me', text: "Almost. Just finishing up some code.", time: "20:02", type: 'text' },
-  { id: 3, senderId: 1, text: "Make sure to bring the drive.", time: "20:03", type: 'text' },
-];
-
-// --- Components ---
-
-function Button({ children, className, onClick, variant = 'primary', ...props }) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]",
-        variant === 'primary' && "bg-[#D32F2F] hover:bg-[#B71C1C] text-white shadow-lg shadow-red-900/40",
-        variant === 'ghost' && "bg-transparent text-[#A0A0A0] hover:text-white hover:bg-[#1E1E1E]",
-        className
-      )}
-      {...props}
-    >
-      {children}
-    </button>
-  );
-}
-
-function InputField({ icon: Icon, type = "text", placeholder, value, onChange, className }) {
-  const [isFocused, setIsFocused] = useState(false);
-
-  return (
-    <div className={cn(
-      "group relative flex items-center bg-[#2A2A2A] rounded-xl border border-transparent transition-all duration-300",
-      isFocused && "border-red-600 shadow-[0_0_15px_-3px_rgba(211,47,47,0.3)]",
-      className
-    )}>
-      {Icon && <Icon className={cn("ml-4 w-5 h-5 transition-colors", isFocused ? "text-red-500" : "text-[#666]")} />}
-      <input
-        type={type}
-        placeholder={placeholder}
-        value={value}
-        onChange={onChange}
-        onFocus={() => setIsFocused(true)}
-        onBlur={() => setIsFocused(false)}
-        className="w-full bg-transparent text-[#F5F5F5] px-4 py-3 outline-none placeholder-[#666]"
-      />
-    </div>
-  );
-}
-
-function Avatar({ src, alt, size = "md", className }) {
-  const sizeClasses = {
-    sm: "w-8 h-8",
-    md: "w-10 h-10",
-    lg: "w-14 h-14",
-    xl: "w-24 h-24"
-  };
-
-  return (
-    <div className={cn("relative rounded-full overflow-hidden bg-[#2A2A2A] flex-shrink-0", sizeClasses[size], className)}>
-      {src ? (
-        <img src={src} alt={alt} className="w-full h-full object-cover" />
-      ) : (
-        <div className="w-full h-full flex items-center justify-center text-[#666]">
-          <User className={size === 'xl' ? "w-10 h-10" : "w-5 h-5"} />
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Camera Modal Component
-function CameraModal({ isOpen, onClose, onCapture, mode = 'photo' }) {
-  const videoRef = useRef(null);
-  const [stream, setStream] = useState(null);
-  const [isRecording, setIsRecording] = useState(false);
-  const [facingMode, setFacingMode] = useState('user'); // 'user' or 'environment'
-  const mediaRecorderRef = useRef(null);
-  const chunksRef = useRef([]);
-
-  useEffect(() => {
-    if (isOpen) {
-      startCamera();
-    } else {
-      stopCamera();
-    }
-    return () => stopCamera();
-  }, [isOpen, facingMode]);
-
-  const startCamera = async () => {
-    try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: facingMode },
-        audio: mode === 'video'
-      });
-      setStream(mediaStream);
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-      }
-    } catch (err) {
-      console.error("Error accessing camera:", err);
-      alert("Unable to access camera. Please check permissions.");
-    }
-  };
-
-  const stopCamera = () => {
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
-      setStream(null);
-    }
-  };
-
-  const capturePhoto = () => {
-    const canvas = document.createElement('canvas');
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
-    canvas.getContext('2d').drawImage(videoRef.current, 0, 0);
-    canvas.toBlob((blob) => {
-      const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
-      onCapture(file, 'image');
-      onClose();
-    }, 'image/jpeg');
-  };
-
-  const startRecording = () => {
-    chunksRef.current = [];
-    mediaRecorderRef.current = new MediaRecorder(stream);
-    mediaRecorderRef.current.ondataavailable = (e) => {
-      if (e.data.size > 0) {
-        chunksRef.current.push(e.data);
-      }
-    };
-    mediaRecorderRef.current.onstop = () => {
-      const blob = new Blob(chunksRef.current, { type: 'video/webm' });
-      const file = new File([blob], `video_${Date.now()}.webm`, { type: 'video/webm' });
-      onCapture(file, 'video');
-      onClose();
-    };
-    mediaRecorderRef.current.start();
-    setIsRecording(true);
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-    }
-  };
-
-  const toggleCamera = () => {
-    setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center">
-      <div className="relative w-full h-full max-w-2xl max-h-[80vh] bg-[#0F0F0F] rounded-2xl overflow-hidden">
-        {/* Header */}
-        <div className="absolute top-0 left-0 right-0 z-10 p-4 bg-gradient-to-b from-black/80 to-transparent flex justify-between items-center">
-          <button onClick={onClose} className="p-2 bg-red-600/20 hover:bg-red-600/40 rounded-full transition-colors">
-            <X className="w-6 h-6 text-white" />
-          </button>
-          <button onClick={toggleCamera} className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-full text-white text-sm transition-colors">
-            Flip Camera
-          </button>
-        </div>
-
-        {/* Video Preview */}
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted
-          className="w-full h-full object-cover"
-        />
-
-        {/* Controls */}
-        <div className="absolute bottom-0 left-0 right-0 p-8 bg-gradient-to-t from-black/80 to-transparent flex justify-center items-center gap-6">
-          {mode === 'photo' ? (
-            <button
-              onClick={capturePhoto}
-              className="w-20 h-20 rounded-full bg-white border-4 border-red-600 hover:bg-red-50 transition-all transform hover:scale-105 active:scale-95"
-            >
-              <Camera className="w-8 h-8 mx-auto text-red-600" />
-            </button>
-          ) : (
-            <button
-              onClick={isRecording ? stopRecording : startRecording}
-              className={cn(
-                "w-20 h-20 rounded-full border-4 transition-all transform hover:scale-105 active:scale-95",
-                isRecording
-                  ? "bg-red-600 border-white animate-pulse"
-                  : "bg-white border-red-600"
-              )}
-            >
-              {isRecording ? (
-                <div className="w-6 h-6 bg-white rounded-sm mx-auto" />
-              ) : (
-                <div className="w-6 h-6 bg-red-600 rounded-full mx-auto" />
-              )}
-            </button>
-          )}
-        </div>
-
-        {isRecording && (
-          <div className="absolute top-20 left-1/2 -translate-x-1/2 px-4 py-2 bg-red-600 rounded-full text-white text-sm font-medium flex items-center gap-2">
-            <div className="w-3 h-3 bg-white rounded-full animate-pulse" />
-            Recording...
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-
-// --- Main App Component ---
-
+/**
+ * ZHATN V2 - Main Application
+ */
 function App() {
-  const [user, setUser] = useState(() => {
-    const saved = sessionStorage.getItem('zhatn_user');
-    return saved ? JSON.parse(saved) : null;
-  }); // { name, phone, avatar }
+  // Global State
+  const [user, setUser] = useState(null); // Authenticated User
+  const [view, setView] = useState('auth'); // 'auth' | 'app'
+  const [appState, setAppState] = useState('chat'); // 'chat' | 'calls' | 'status'
 
-  const [view, setView] = useState('login'); // 'login' | 'signup'
-
-  // Auth Form State
-  const [formData, setFormData] = useState({
-    username: '',
-    phone: '',
-    password: '',
-    avatar: null,
-    avatarPreview: null
-  });
+  // Auth State
+  const [authStage, setAuthStage] = useState('phone'); // 'phone' | 'otp' | 'profile'
+  const [country, setCountry] = useState(COUNTRIES[2]); // Default LK
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [otp, setOtp] = useState(['', '', '', '']);
+  const [profileName, setProfileName] = useState('');
 
   // Chat State
-  const [activeContact, setActiveContact] = useState(null);
-  const [showMobileChat, setShowMobileChat] = useState(false);
-
-  // Real DB State
+  const [activeChat, setActiveChat] = useState(null);
   const [messages, setMessages] = useState([]);
-  const [contacts, setContacts] = useState([]);
+  const [inputText, setInputText] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isCalling, setIsCalling] = useState(false); // Simulated Call UI
 
-  const [newMessage, setNewMessage] = useState('');
-  const [isCameraOpen, setIsCameraOpen] = useState(false);
-  const [cameraMode, setCameraMode] = useState('photo'); // 'photo' | 'video'
-  const [attachedMedia, setAttachedMedia] = useState(null);
+  // Media State
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+
+  // Data State
+  const [contacts, setContacts] = useState([]);
   const chatEndRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFormData({ ...formData, avatar: file, avatarPreview: reader.result });
-      };
-      reader.readAsDataURL(file);
+  // --- 0. PERSISTENCE & INIT ---
+  const [gender, setGender] = useState(null); // 'male' or 'female'
+  const [userAvatar, setUserAvatar] = useState(null); // Preview URL or File Data
+  const avatarInputRef = useRef(null);
+
+  // --- 5. LONG PRESS LOGIC (Delete) ---
+  const [contextMenuContact, setContextMenuContact] = useState(null);
+  const longPressTimer = useRef(null);
+  const isLongPress = useRef(false); // Track if we just triggered options
+
+  const startPress = (contact) => {
+    isLongPress.current = false;
+    longPressTimer.current = setTimeout(() => {
+      isLongPress.current = true; // Mark that we triggered it
+      setContextMenuContact(contact.phone);
+      if (navigator.vibrate) navigator.vibrate(50);
+    }, 600);
+  };
+
+  const cancelPress = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
     }
   };
 
-  const handleSignup = async (e) => {
-    e.preventDefault();
-    if (formData.username && formData.phone) {
-      const newUser = {
-        name: formData.username,
-        phone: formData.phone,
-        avatar: formData.avatarPreview // Note: Storing base64 string directly for demo
-      };
+  // Close context menu when clicking elsewhere
+  useEffect(() => {
+    if (!contextMenuContact) return;
 
-      // Insert into Supabase
-      const { error } = await supabase.from('profiles').insert([
-        {
-          username: newUser.name,
-          phone: newUser.phone,
-          avatar_url: newUser.avatar,
-          status: 'online'
+    const closeMenu = () => setContextMenuContact(null);
+
+    // Delay wrapping to ensure we don't catch the immediate 'click' from the release
+    const timer = setTimeout(() => {
+      window.addEventListener('click', closeMenu);
+    }, 100);
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('click', closeMenu);
+    };
+  }, [contextMenuContact]);
+
+  useEffect(() => {
+    // Check Local Storage on Load
+    const savedUser = localStorage.getItem('zhatn_user');
+    if (savedUser) {
+      try {
+        const parsedUser = JSON.parse(savedUser);
+        if (parsedUser && parsedUser.phone) {
+          setUser(parsedUser);
+          setView('app');
+          fetchMyChats(parsedUser);
+          updateOnlineStatus(parsedUser.phone, true);
+        } else {
+          // Invalid data found, clear it
+          localStorage.removeItem('zhatn_user');
         }
-      ]);
-
-      if (error) {
-        console.error("Signup error:", error);
-        alert("Error creating account: " + error.message);
-      } else {
-        setUser(newUser);
+      } catch (e) {
+        console.error("Auth Restore Error", e);
+        localStorage.removeItem('zhatn_user');
       }
     }
+  }, []); // Run ONCE on mount
+
+  // --- 0.5 CLEANUP ---
+  useEffect(() => {
+    const handleUnload = () => {
+      // Note: We can't access 'user' reliably here if it's stale, but we try.
+      // Better approach for real apps is 'navigator.sendBeacon' or presence/heartbeat.
+      const savedUser = localStorage.getItem('zhatn_user');
+      if (savedUser) {
+        const u = JSON.parse(savedUser);
+        updateOnlineStatus(u.phone, false);
+      }
+    };
+    window.addEventListener('beforeunload', handleUnload);
+    return () => window.removeEventListener('beforeunload', handleUnload);
+  }, []);
+
+  const updateOnlineStatus = async (phone, isOnline) => {
+    await supabase.from('profiles').update({
+      is_online: isOnline,
+      last_seen: new Date().toISOString()
+    }).eq('phone', phone);
   };
 
-  const handleLogin = (e) => {
+  // --- 1. AUTHENTICATION LOGIC ---
+
+  const handlePhoneSubmit = (e) => {
     e.preventDefault();
-    const demoUser = {
-      name: "Agent-007",
-      phone: "007",
-      avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80"
-    };
-    setUser(demoUser);
-
-    // Auto-create demo profile if not exists (fire and forget)
-    supabase.from('profiles').insert([
-      { username: demoUser.name, phone: demoUser.phone, avatar_url: demoUser.avatar, status: 'online' }
-    ]).then(({ error }) => {
-      // Ignore duplicate key error (already exists)
-    });
+    const cleanNumber = phoneNumber.replace(/\D/g, '').replace(/^0+/, '');
+    if (cleanNumber.length !== country.len) {
+      alert(`Please enter a valid ${country.len}-digit mobile number.`);
+      return;
+    }
+    setPhoneNumber(cleanNumber);
+    alert("TESTING MODE: Your verification code is 1234");
+    setAuthStage('otp');
   };
 
-  const handleCameraCapture = (file, type) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setAttachedMedia({ file, preview: reader.result, type });
-    };
-    reader.readAsDataURL(file);
-  };
+  const handleOtpVerify = (e) => {
+    e.preventDefault();
+    const enteredOtp = otp.join('');
 
-  const handleFileAttachment = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const type = file.type.startsWith('image/') ? 'image' :
-          file.type.startsWith('video/') ? 'video' : 'file';
-        setAttachedMedia({ file, preview: reader.result, type });
-      };
-      reader.readAsDataURL(file);
+    // Custom Passwords for "Admin/Special" Accounts
+    // 987654321 -> Requires 1301
+    // 123456789 -> Requires 1326
+    // Everyone else -> Requires 1234
+
+    let requiredOtp = '1234';
+    if (phoneNumber === '987654321') requiredOtp = '1301';
+    if (phoneNumber === '123456789') requiredOtp = '1326';
+
+    if (enteredOtp === requiredOtp) {
+      checkUserExists();
+    } else {
+      // Security measure: maintain illusion
+      alert("Invalid Code (Try 1234)");
     }
   };
 
-  const handleSendMessage = async (e) => {
+  const checkUserExists = async () => {
+    const fullPhone = `${country.dial}${phoneNumber}`;
+    const { data } = await supabase.from('profiles').select('*').eq('phone', fullPhone).single();
+    if (data) {
+      loginUser(data);
+    } else {
+      setAuthStage('profile');
+    }
+  };
+
+  // -- Avatar Selection & Validation --
+  const handleAvatarSelect = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const img = new Image();
+      img.src = URL.createObjectURL(file);
+      img.onload = () => {
+        if (Math.abs(img.width - img.height) > 10) { // Allow slight 10px error
+          alert("Please upload a square (1:1) photo.");
+          e.target.value = null; // Clear input
+          setUserAvatar(null);
+        } else {
+          // COMPRESSION: Resize to 300x300 JPEG to save space (LocalStorage limit is ~5MB)
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          const maxSize = 300;
+
+          canvas.width = maxSize;
+          canvas.height = maxSize;
+
+          // Draw image tightly to canvas (resize)
+          ctx.drawImage(img, 0, 0, maxSize, maxSize);
+
+          // Compress to JPEG 0.7 quality
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+          setUserAvatar(dataUrl);
+        }
+      };
+    }
+  };
+
+  const handleRegister = async (e) => {
     e.preventDefault();
+    if (!profileName || !gender) {
+      alert("Please enter a name and select a gender.");
+      return;
+    }
 
-    const msgContent = newMessage.trim();
-    if (!msgContent && !attachedMedia) return;
+    const fullPhone = `${country.dial}${phoneNumber}`;
 
-    // Prepare message for DB
-    const dbMsg = {
-      content: msgContent,
-      sender_id: user.phone,
-      sender_name: user.name,
-      sender_avatar: user.avatar,
-      type: attachedMedia ? attachedMedia.type : 'text',
-      media_url: attachedMedia ? attachedMedia.preview : null // NOTE: Storing base64 for demo
+    // Determine Avatar
+    let finalAvatar = userAvatar;
+
+    if (!finalAvatar) {
+      // If no photo uploaded, use default based on gender
+      if (gender === 'male') finalAvatar = 'https://cdn-icons-png.flaticon.com/512/3233/3233508.png'; // Sample Male Icon
+      if (gender === 'female') finalAvatar = 'https://cdn-icons-png.flaticon.com/512/3233/3233515.png'; // Sample Female Icon
+    }
+
+    const newUser = {
+      username: profileName,
+      phone: fullPhone,
+      gender: gender,
+      avatar_url: finalAvatar,
+      status: 'online',
+      is_online: true
     };
 
-    // Insert into Supabase
-    const { error } = await supabase.from('messages').insert([dbMsg]);
+    // Use upsert to handle potential race conditions or re-registrations
+    const { data, error } = await supabase
+      .from('profiles')
+      .upsert([newUser], { onConflict: 'phone' })
+      .select()
+      .single();
 
     if (error) {
-      console.error("Error sending message:", error);
-      alert("Failed to send message: " + error.message);
+      // Ignore "duplicate key" error effectively by trying login if upsert failed weirdly, 
+      // but upsert should handle it. If real error, show it.
+      console.error("Registration Error:", error);
+      alert("Error registering: " + error.message);
     } else {
-      setNewMessage('');
-      setAttachedMedia(null);
+      // Use returned data to ensure we have the DB version (though newUser is fine)
+      loginUser(data || newUser);
     }
   };
 
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  const loginUser = async (userData) => {
+    // Session Management: Generate unique ID for this device login
+    const sessionId = Date.now().toString() + Math.random().toString(36).substring(2);
 
-  // --- Initial Data Fetch & Realtime Subscription ---
-  useEffect(() => {
-    // 1. Fetch initial data
-    const fetchData = async () => {
-      // Get users
-      const { data: usersData } = await supabase.from('profiles').select('*');
-      if (usersData) {
-        setContacts(usersData);
-      }
-
-      // Get messages (limit last 50 for demo)
-      const { data: msgsData } = await supabase
-        .from('messages')
-        .select('*')
-        .order('created_at', { ascending: true })
-        .limit(50);
-
-      if (msgsData) {
-        const formatted = msgsData.map(m => ({
-          id: m.id,
-          senderId: m.sender_id,
-          senderName: m.sender_name,
-          senderAvatar: m.sender_avatar,
-          text: m.content,
-          type: m.type,
-          mediaUrl: m.media_url,
-          time: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        }));
-        setMessages(formatted);
-      }
+    // Update DB with new session (AND enforce special profiles if needed)
+    const updates = {
+      session_id: sessionId,
+      is_online: true,
+      last_seen: new Date().toISOString()
     };
 
-    fetchData();
+    // SPECIAL ACCOUNTS: Enforce specific identities
+    if (userData.phone === '123456789') {
+      updates.username = 'Zhatn';
+      updates.avatar_url = '/zhatn-logo.png';
+      userData.username = 'Zhatn';
+      userData.avatar_url = '/zhatn-logo.png';
+    }
+    if (userData.phone === '987654321') {
+      updates.username = 'Dark Vibe';
+      updates.avatar_url = '/darkvibe-logo.jpg';
+      userData.username = 'Dark Vibe';
+      userData.avatar_url = '/darkvibe-logo.jpg';
+    }
 
-    // 2. Subscribe to new messages
-    const channel = supabase
-      .channel('public:messages')
+    await supabase.from('profiles').update(updates).eq('phone', userData.phone);
+
+    const userWithSession = { ...userData, session_id: sessionId };
+
+    setUser(userWithSession);
+    localStorage.setItem('zhatn_user', JSON.stringify(userWithSession)); // Persist
+    setView('app');
+    fetchMyChats(userWithSession);
+  };
+
+  const handleLogout = () => {
+    if (confirm("Are you sure you want to log out?")) {
+      if (user) updateOnlineStatus(user.phone, false);
+      localStorage.removeItem('zhatn_user');
+      setUser(null);
+      setView('auth');
+      setAuthStage('phone');
+      setPhoneNumber('');
+      setOtp(['', '', '', '']);
+      setActiveChat(null);
+    }
+  };
+
+  // --- 2. DATA LAYER ---
+
+  const [myChats, setMyChats] = useState([]); // Users with chat history
+
+  // 1. Fetch people I've actually talked to
+  const fetchMyChats = async (currentUser) => {
+    const myPhone = currentUser?.phone || user?.phone;
+    if (!myPhone) return;
+
+    // Get all messages involving me
+    const { data: msgs } = await supabase
+      .from('messages')
+      .select('sender_id, receiver_id')
+      .or(`sender_id.eq.${myPhone},receiver_id.eq.${myPhone}`)
+      .order('created_at', { ascending: false });
+
+    if (msgs) {
+      // Extract unique IDs that are NOT me
+      const uniqueIds = new Set();
+      msgs.forEach(m => {
+        if (m.sender_id !== myPhone) uniqueIds.add(m.sender_id);
+        if (m.receiver_id !== myPhone) uniqueIds.add(m.receiver_id);
+      });
+
+      if (uniqueIds.size > 0) {
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('*')
+          .in('phone', Array.from(uniqueIds));
+
+        if (profiles) {
+          // SORTING: Database 'in()' query does not preserve order. 
+          // Re-sort profiles based on the order they appeared in the 'messages' query (most recent first).
+          const sortedIds = Array.from(uniqueIds);
+          profiles.sort((a, b) => sortedIds.indexOf(a.phone) - sortedIds.indexOf(b.phone));
+
+          setMyChats(profiles);
+          setContacts(profiles); // Default view is my chats
+        }
+      } else {
+        setMyChats([]);
+        setContacts([]);
+      }
+    }
+  };
+
+  // 2. Search for new people globally
+  const handleSearch = async (term) => {
+    setSearchTerm(term);
+    if (!term.trim()) {
+      setContacts(myChats); // Restore chat list
+      return;
+    }
+
+    // PRIVACY: If searching by number, require at least 9 digits to query the GLOBAL database.
+    // This prevents "fishing" for random users by typing short prefixes (e.g. "77").
+    // Existing chats (myChats) will still be filtered by the UI, so you can find YOUR friends with short numbers.
+    const cleanTerm = term.replace(/\D/g, '');
+    const isNumericSearch = /^\d+$/.test(cleanTerm) && cleanTerm.length > 0;
+
+    if (isNumericSearch && cleanTerm.length < 9) {
+      setContacts(myChats); // Only match against local history
+      return;
+    }
+
+    // Search by Phone (or Username)
+    const { data } = await supabase
+      .from('profiles')
+      .select('*')
+      .neq('phone', user.phone) // Don't find self
+      .ilike('phone', `%${term}%`)
+      .limit(5);
+
+    if (data) setContacts(data);
+  };
+
+  // --- REALTIME SUBSCRIPTIONS ---
+
+  // 1. Global Subscription (Sidebar & Status)
+  useEffect(() => {
+    if (!user) return;
+
+    // Listen for ANY new message involving me (to refresh sidebar)
+    const globalMsgChannel = supabase.channel('global_chat_updates')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
         const m = payload.new;
-        const newMsg = {
-          id: m.id,
-          senderId: m.sender_id,
-          senderName: m.sender_name,
-          senderAvatar: m.sender_avatar,
-          text: m.content,
-          type: m.type,
-          mediaUrl: m.media_url,
-          time: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        };
-        setMessages(prev => [...prev, newMsg]);
+        // If I am the receiver or sender, refresh my chat list
+        if (m.receiver_id === user.phone || m.sender_id === user.phone) {
+          fetchMyChats(user);
+        }
       })
       .subscribe();
 
-    // 3. Subscribe to new users (profiles)
-    const profilesChannel = supabase
-      .channel('public:profiles')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'profiles' }, (payload) => {
-        setContacts(prev => [...prev, payload.new]);
+    // Listen for Status Updates & Force Logout
+    const statusChannel = supabase.channel('global_presence')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, (payload) => {
+
+        // 1. Force Logout Logic
+        if (payload.new.phone === user.phone) {
+          // If the session ID on the server changed, and it doesn't match MY local session ID...
+          if (payload.new.session_id && payload.new.session_id !== user.session_id) {
+            alert("⚠️ Security Alert\n\nYou have been signed out because your account was accessed from another device.");
+            localStorage.removeItem('zhatn_user');
+            window.location.reload(); // Force hard reset
+            return;
+          }
+        }
+
+        // 2. Normal Contact Updates
+        setContacts(prev => prev.map(c => c.phone === payload.new.phone ? payload.new : c));
+        setMyChats(prev => prev.map(c => c.phone === payload.new.phone ? payload.new : c));
       })
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
-      supabase.removeChannel(profilesChannel);
+      supabase.removeChannel(globalMsgChannel);
+      supabase.removeChannel(statusChannel);
     };
-  }, []);
-
-  // Save user to session on change
-  useEffect(() => {
-    if (user) {
-      sessionStorage.setItem('zhatn_user', JSON.stringify(user));
-    } else {
-      sessionStorage.removeItem('zhatn_user');
-    }
   }, [user]);
 
-  // -- Render Auth View --
-  if (!user) {
+  // 2. Active Chat Subscription (Messages View)
+  useEffect(() => {
+    if (!user || !activeChat) return;
+
+    const myId = user.phone;
+    const theirId = activeChat.phone;
+
+    // Load History & Mark as Read
+    const fetchMsgs = async () => {
+      const { data } = await supabase
+        .from('messages')
+        .select('*')
+        .or(`and(sender_id.eq.${myId},receiver_id.eq.${theirId}),and(sender_id.eq.${theirId},receiver_id.eq.${myId})`)
+        .order('created_at', { ascending: true });
+      if (data) {
+        setMessages(data);
+        // Mark incoming unread messages as read
+        const unreadIds = data.filter(m => m.receiver_id === myId && !m.read_status).map(m => m.id);
+        if (unreadIds.length > 0) {
+          await supabase.from('messages').update({ read_status: true }).in('id', unreadIds);
+        }
+      }
+    };
+    fetchMsgs();
+
+    // Listen for messages in THIS conversation
+    const chatChannel = supabase.channel(`chat:${theirId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, async (payload) => {
+        const m = payload.new;
+        if ((m.sender_id === myId && m.receiver_id === theirId) || (m.sender_id === theirId && m.receiver_id === myId)) {
+          // Prevent duplicates (in case we added it optimistically or received double event)
+          setMessages(prev => {
+            if (prev.some(existing => existing.id === m.id)) return prev;
+            return [...prev, m];
+          });
+
+          // Mark as Read if I'm the receiver
+          if (m.receiver_id === myId) {
+            await supabase.from('messages').update({ read_status: true }).eq('id', m.id);
+          }
+        }
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, (payload) => {
+        // Listen for "READ" status updates
+        setMessages(prev => prev.map(msg => msg.id === payload.new.id ? payload.new : msg));
+      })
+      .subscribe();
+
+    return () => supabase.removeChannel(chatChannel);
+  }, [activeChat, user]);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  // --- 3. ACTIONS (Text, Image, Voice) ---
+
+  const sendMessage = async (e) => {
+    if (e) e.preventDefault();
+    if (!inputText.trim()) return;
+
+    await dispatchMessage('text', inputText);
+    setInputText('');
+  };
+
+  const dispatchMessage = async (type, content) => {
+    try {
+      const msg = {
+        content: content,
+        sender_id: user.phone,
+        sender_name: user.username || 'Unknown',
+        receiver_id: activeChat.phone,
+        type: type,
+        read_status: false, // Re-enabled: User should have run the SQL schema update by now
+        created_at: new Date().toISOString()
+      };
+
+      // Insert and SELECT the row to get the generated ID
+      const { data, error } = await supabase.from('messages').insert([msg]).select().single();
+
+      if (error) {
+        console.error("Message Send Error:", error);
+        alert("Error sending message: " + error.message);
+        return;
+      }
+
+      if (data) {
+        // Immediate UI Update (avoid waiting for Realtime round-trip)
+        setMessages(prev => {
+          if (prev.some(existing => existing.id === data.id)) return prev;
+          return [...prev, data];
+        });
+
+        // If this was a new contact (searched), force sidebar refresh so they appear in history
+        if (!myChats.some(c => c.phone === activeChat.phone)) {
+          fetchMyChats(user);
+        }
+      }
+    } catch (err) {
+      console.error("Dispatch Error:", err);
+      alert("Something went wrong sending the message.");
+    }
+  };
+
+  // -- Image Handling (Base64 for prototype) --
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (file.size > 2000000) { alert("File too large (Max 2MB for demo)"); return; }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      dispatchMessage('image', reader.result); // Send Base64 string
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // -- Voice Handling --
+  const toggleRecording = async () => {
+    if (isRecording) {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+        setIsRecording(false);
+      }
+    } else {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorderRef.current = new MediaRecorder(stream);
+        audioChunksRef.current = [];
+
+        mediaRecorderRef.current.ondataavailable = (event) => {
+          audioChunksRef.current.push(event.data);
+        };
+
+        mediaRecorderRef.current.onstop = () => {
+          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+          const reader = new FileReader();
+          reader.readAsDataURL(audioBlob);
+          reader.onloadend = () => {
+            dispatchMessage('audio', reader.result); // Base64 Audio
+          };
+        };
+
+        mediaRecorderRef.current.start();
+        setIsRecording(true);
+      } catch (err) {
+        alert("Microphone access denied. Please allow microphone access to send voice messages.");
+      }
+    }
+  };
+
+  // --- 4. CHAT MANAGEMENT (Delete/Clear) ---
+
+  const deleteConversation = async (targetPhone) => {
+    const myId = user.phone;
+    // Delete ALL messages between these two users
+    const { error } = await supabase
+      .from('messages')
+      .delete()
+      .or(`and(sender_id.eq.${myId},receiver_id.eq.${targetPhone}),and(sender_id.eq.${targetPhone},receiver_id.eq.${myId})`);
+
+    if (error) {
+      alert("Error deleting chat: " + error.message);
+    } else {
+      return true;
+    }
+  };
+
+  const handleDeleteChat = async (e, contact) => {
+    e.stopPropagation(); // Prevent opening the chat
+    if (confirm(`Delete chat with ${contact.username}? Use this to remove them from your list.`)) {
+      const success = await deleteConversation(contact.phone);
+      if (success) {
+        setMessages([]); // Clear local view if active
+        if (activeChat?.phone === contact.phone) setActiveChat(null);
+
+        // CRITICAL: Update BOTH lists to prevent "ghost" items or UI desync
+        setMyChats(prev => prev.filter(c => c.phone !== contact.phone));
+        setContacts(prev => prev.filter(c => c.phone !== contact.phone));
+      }
+    }
+  };
+
+  const handleClearChat = async () => {
+    if (!activeChat) return;
+    if (confirm(`Clear all messages with ${activeChat.username}? The chat will stay open.`)) {
+      const success = await deleteConversation(activeChat.phone);
+      if (success) {
+        setMessages([]); // Clears the view, but keeps activeChat set
+        // Note: If you refresh context now, they might disappear from sidebar until you send a new message.
+        // To fix this "permanently", we'd need a 'conversations' table.
+        // For now, this mimics "Clear" by emptying the view.
+      }
+    }
+  };
+
+  // --- UI HELPERS ---
+  // Safety check: Ensure contacts is always an array to prevent "map of undefined" crashes
+  const safeContacts = Array.isArray(contacts) ? contacts : [];
+
+  const filteredContacts = safeContacts.filter(c =>
+    (c.username || c.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (c.phone || '').includes(searchTerm)
+  );
+
+  // Get latest status of active chat user
+  const currentChatUser = activeChat ? (contacts.find(c => c.phone === activeChat.phone) || activeChat) : null;
+  const [showMenu, setShowMenu] = useState(false); // For 3-dot menu
+
+  // --- RENDER ---
+  if (view === 'auth') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#0F0F0F] relative overflow-hidden font-sans">
-        {/* Ambient Glow */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-red-900/10 rounded-full blur-[120px] pointer-events-none" />
+      <div className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-y-auto">
+        {/* Animated Background Blobs */}
+        <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-red-900/20 rounded-full blur-[100px] animate-pulse"></div>
+        <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-red-600/10 rounded-full blur-[100px] animate-pulse delay-700"></div>
 
-        <div className="w-full max-w-md z-10 p-4 animate-fade-in">
-          <div className="glass-panel p-8 rounded-2xl shadow-2xl backdrop-blur-xl border border-white/5">
-            <div className="text-center mb-8">
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-red-500 to-red-600 bg-clip-text text-transparent mb-2">
-                Zhatn.
-              </h1>
-              <p className="text-[#A0A0A0]">The future of communication.</p>
-            </div>
-
-            {view === 'signup' ? (
-              <form onSubmit={handleSignup} className="space-y-5">
-                {/* Photo Upload */}
-                <div className="flex justify-center mb-6">
-                  <div className="relative group cursor-pointer">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleFileChange}
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
-                    />
-                    <div className={cn(
-                      "w-32 h-32 rounded-full border-2 border-dashed flex items-center justify-center overflow-hidden transition-all duration-300",
-                      formData.avatarPreview
-                        ? "border-red-500 shadow-[0_0_20px_rgba(211,47,47,0.3)]"
-                        : "border-[#444] group-hover:border-red-500 bg-[#1E1E1E]"
-                    )}>
-                      {formData.avatarPreview ? (
-                        <img src={formData.avatarPreview} alt="Preview" className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="text-center group-hover:text-red-500 transition-colors">
-                          <Camera className="w-8 h-8 mx-auto mb-1 text-[#666] group-hover:text-red-500" />
-                          <span className="text-xs text-[#666] group-hover:text-red-400">Upload Photo</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <InputField
-                  icon={User}
-                  placeholder="Username"
-                  value={formData.username}
-                  onChange={e => setFormData({ ...formData, username: e.target.value })}
-                />
-                <InputField
-                  icon={Phone}
-                  type="tel"
-                  placeholder="Phone Number"
-                  value={formData.phone}
-                  onChange={e => setFormData({ ...formData, phone: e.target.value })}
-                />
-                <InputField
-                  icon={Lock}
-                  type="password"
-                  placeholder="Password"
-                  value={formData.password}
-                  onChange={e => setFormData({ ...formData, password: e.target.value })}
-                />
-
-                <Button type="submit" className="w-full mt-4">Create Account</Button>
-
-                <div className="text-center text-sm text-[#888] mt-4">
-                  Already have an account?{' '}
-                  <button type="button" onClick={() => setView('login')} className="text-red-500 hover:text-red-400 font-medium">Log In</button>
-                </div>
-              </form>
-            ) : (
-              <form onSubmit={handleLogin} className="space-y-6">
-                <div className="p-4 bg-red-900/20 border border-red-500/20 rounded-lg text-sm text-red-200 text-center">
-                  For "Real Global Chat": Use <strong>Sign Up</strong> to create a real user profile (available to everyone).
-                </div>
-                <Button type="button" onClick={() => setView('signup')} className="w-full">Go to Sign Up</Button>
-
-                <div className="relative flex py-2 items-center">
-                  <div className="flex-grow border-t border-gray-700"></div>
-                  <span className="flex-shrink-0 mx-4 text-gray-500 text-xs">OR USE DEMO ACCOUNT</span>
-                  <div className="flex-grow border-t border-gray-700"></div>
-                </div>
-
-                <Button type="submit" variant="ghost" className="w-full">Access as Agent-007 (Demo)</Button>
-              </form>
-            )}
+        <div className="glass-card w-full max-w-md p-8 rounded-3xl animate-liquid-in relative z-10">
+          <div className="text-center mb-10">
+            <img src="/zhatn-logo.png" className="w-24 h-24 mx-auto mb-4 rounded-3xl shadow-xl hover:scale-105 transition-transform duration-500" alt="Zhatn Logo" />
+            <h1 className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-red-500 to-red-700 mb-2 drop-shadow-sm">Zhatn.</h1>
           </div>
+
+          {authStage === 'phone' && (
+            <form onSubmit={handlePhoneSubmit} className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-gray-400 uppercase ml-2">Country Code</label>
+                <div className="grid grid-cols-[100px_1fr] gap-3">
+                  <select
+                    className="input-pill px-3 appearance-none cursor-pointer text-white bg-[#333]"
+                    value={country.code}
+                    onChange={(e) => setCountry(COUNTRIES.find(c => c.code === e.target.value))}
+                  >
+                    {COUNTRIES.map(c => <option key={c.code} value={c.code} className="text-black">{c.flag} {c.dial}</option>)}
+                  </select>
+                  <input
+                    type="tel"
+                    className="input-pill font-mono text-lg tracking-wide text-white"
+                    placeholder="Mobile Number"
+                    maxLength={country.len}
+                    value={phoneNumber}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '');
+                      if (val.length <= country.len) setPhoneNumber(val);
+                    }}
+                    autoFocus
+                  />
+                </div>
+                <p className="text-[10px] text-gray-500 ml-2">Don't enter leading "0". Required: {country.len} digits.</p>
+              </div>
+              <button type="submit" className="btn-liquid w-full py-4 rounded-xl text-lg shadow-lg shadow-red-900/40">Send Code</button>
+            </form>
+          )}
+
+          {authStage === 'otp' && (
+            <form onSubmit={handleOtpVerify} className="space-y-6 text-center">
+              <p className="text-sm text-gray-400 mb-4">
+                Code sent to <b className="text-white">{country.dial} {phoneNumber}</b><br />
+                <span className="text-red-400 font-bold">(Test Code: 1234)</span>
+              </p>
+              <div className="flex justify-center gap-3">
+                {otp.map((d, i) => (
+                  <input
+                    key={i}
+                    type="text"
+                    maxLength={1}
+                    className="w-14 h-16 rounded-2xl border border-white/10 bg-white/5 text-center text-white text-2xl font-bold focus:ring-2 ring-red-500/50 outline-none backdrop-blur shadow-sm"
+                    value={d}
+                    onChange={(e) => {
+                      const newOtp = [...otp];
+                      newOtp[i] = e.target.value;
+                      setOtp(newOtp);
+                      if (e.target.value && i < 3) document.getElementById(`otp-${i + 1}`)?.focus();
+                    }}
+                    id={`otp-${i}`}
+                  />
+                ))}
+              </div>
+              <button type="submit" className="btn-liquid w-full py-4 rounded-xl text-lg mt-4 shadow-red-900/40">Verify Identity</button>
+            </form>
+          )}
+
+          {authStage === 'profile' && (
+            <form onSubmit={handleRegister} className="space-y-6 text-center">
+
+              {/* Avatar Upload */}
+              <div onClick={() => avatarInputRef.current?.click()} className="w-32 h-32 mx-auto relative cursor-pointer group">
+                <div className={cn("w-full h-full rounded-full overflow-hidden border-2 shadow-lg flex items-center justify-center transition-all bg-black/40", userAvatar ? "border-red-500" : "border-red-500/30 group-hover:border-red-500")}>
+                  {userAvatar ? (
+                    <img src={userAvatar} className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="w-12 h-12 text-red-500/50 group-hover:text-red-500 transition-colors" />
+                  )}
+                </div>
+                {/* Plus Badge */}
+                <div className="absolute bottom-1 right-1 bg-red-600 rounded-full p-1.5 shadow-md border border-black">
+                  <div className="w-3 h-3 bg-white mask-plus" /> {/* CSS Plus or Icon */}
+                  <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4" /></svg>
+                </div>
+                <input type="file" ref={avatarInputRef} className="hidden" accept="image/*" onChange={handleAvatarSelect} />
+              </div>
+              <p className="text-[10px] text-gray-500">Tap to upload square photo (1:1)</p>
+
+
+              <input
+                type="text"
+                className="input-pill w-full text-center text-lg text-white"
+                placeholder="Your Name"
+                value={profileName}
+                onChange={(e) => setProfileName(e.target.value)}
+              />
+
+              {/* Gender Selection */}
+              <div className="grid grid-cols-2 gap-4">
+                <button type="button"
+                  onClick={() => setGender('male')}
+                  className={cn("p-3 rounded-xl border transition-all flex items-center justify-center gap-2", gender === 'male' ? "bg-red-900/40 border-red-500 text-white" : "border-white/10 text-gray-500 hover:bg-white/5")}
+                >
+                  <span className="text-lg">👨</span> Male
+                </button>
+                <button type="button"
+                  onClick={() => setGender('female')}
+                  className={cn("p-3 rounded-xl border transition-all flex items-center justify-center gap-2", gender === 'female' ? "bg-red-900/40 border-red-500 text-white" : "border-white/10 text-gray-500 hover:bg-white/5")}
+                >
+                  <span className="text-lg">👩</span> Female
+                </button>
+              </div>
+
+              <button type="submit" disabled={!profileName || !gender} className="btn-liquid w-full py-4 rounded-xl text-lg shadow-red-900/40 disabled:opacity-50 disabled:cursor-not-allowed">
+                Start Messaging
+              </button>
+            </form>
+          )}
+
+        </div>
+
+        {/* FOOTER (External) */}
+        <div className="mt-6 text-center space-y-2 relative z-10">
+          <p className="text-[10px] text-white/40 font-light tracking-wider">v1.0 — 7 Days Built</p>
+          <p className="text-[10px] text-white/40 font-light">
+            Deployed by <a href="#" className="font-medium text-white/60 hover:text-red-400 transition-colors">Dark Vibe</a>
+          </p>
+          <a href="#" className="text-[10px] text-white/30 hover:text-red-400 transition-colors block mt-2">
+            Send Suggestions & Feedback
+          </a>
         </div>
       </div>
     );
   }
 
-  // Combine contacts for display
-  // Combine contacts for display
-  const displayContacts = contacts
-    .filter((v, i, a) => a.findIndex(t => (t.phone || t.id) === (v.phone || v.id)) === i) // Unique by phone/id
-    .filter(c => c.phone !== user?.phone); // Exclude self
+  // --- APP VIEW ---
+  if (!user) return <div className="h-screen flex items-center justify-center text-red-500 animate-pulse">Loading Zhatn...</div>;
 
-  // -- Render Main App Interface --
   return (
-    <div className="min-h-screen bg-[#0F0F0F] text-[#F5F5F5] flex overflow-hidden font-sans">
+    <div className="h-screen w-full flex bg-[#050505] overflow-hidden text-gray-200">
 
-      {/* Sidebar */}
-      <aside className="w-80 bg-[#181818] border-r border-[#222] flex flex-col hidden md:flex">
-        {/* Sidebar Header */}
-        <div className="p-5 border-b border-[#222] flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <Avatar src={user.avatar} size="md" className="border border-white/10" />
-            <div>
-              <h3 className="font-semibold text-white">{user.name}</h3>
-              <p className="text-xs text-green-500 font-medium">Online</p>
-            </div>
+      {/* SIDEBAR */}
+      <div className="w-96 glass-panel flex flex-col z-20 border-r border-white/5">
+        {/* Header */}
+        <div className="p-5 flex items-center justify-between border-b border-white/5">
+          <div className="flex items-center gap-3">
+            <img src={user.avatar_url} className="w-10 h-10 rounded-full border border-white/10 shadow-sm" alt="Me" />
+            <h3 className="font-semibold text-white tracking-wide">{user.username}</h3>
           </div>
-          <button onClick={() => setUser(null)} className="p-2 text-[#666] hover:text-red-500 transition-colors">
-            <LogOut className="w-5 h-5" />
-          </button>
+          <div className="flex gap-2 text-gray-400">
+            <button onClick={handleLogout} className="p-2 hover:bg-white/10 hover:text-red-500 rounded-full transition-colors" title="Logout"><LogOut className="w-5 h-5" /></button>
+          </div>
         </div>
 
         {/* Search */}
         <div className="p-4">
           <div className="relative">
-            <Search className="absolute left-3 top-3 w-4 h-4 text-[#555]" />
+            <Search className="w-4 h-4 absolute left-4 top-3.5 text-gray-500" />
             <input
               type="text"
-              placeholder="Search contacts..."
-              className="w-full bg-[#0F0F0F] rounded-lg pl-10 pr-4 py-2.5 text-sm text-gray-300 focus:outline-none focus:ring-1 focus:ring-[#333]"
+              placeholder="Search chats (phone/username)..."
+              className="input-pill w-full pl-10 py-2.5 text-sm bg-[#1a1a1a] border-white/5 text-gray-300 placeholder-gray-600 focus:bg-[#222]"
+              value={searchTerm}
+              onChange={e => handleSearch(e.target.value)}
             />
           </div>
         </div>
 
-        {/* Contact List */}
-        <div className="flex-1 overflow-y-auto px-2 space-y-1">
-          <div className="px-4 py-2 text-xs font-bold text-red-500 uppercase tracking-widest opacity-80">
-            Global Feed
-          </div>
-          {displayContacts.map(contact => (
+        {/* Chat List */}
+        <div className="flex-1 overflow-y-auto px-2">
+
+
+
+
+
+
+
+
+
+
+
+          {filteredContacts.map(contact => (
             <div
               key={contact.id || contact.phone}
-              onClick={() => {
-                setActiveContact(contact);
-                setShowMobileChat(true);
+              onClick={(e) => {
+                if (isLongPress.current) {
+                  isLongPress.current = false;
+                  e.stopPropagation();
+                  return;
+                }
+                setActiveChat(contact);
               }}
+
+              // Long Press Events
+              onMouseDown={() => startPress(contact)}
+              onMouseUp={cancelPress}
+              onMouseLeave={cancelPress}
+              onTouchStart={() => startPress(contact)}
+              onTouchEnd={cancelPress}
+
               className={cn(
-                "p-3 rounded-lg cursor-pointer flex items-center space-x-3 transition-all duration-200 group",
-                ((activeContact?.id || activeContact?.phone) === (contact.id || contact.phone)) ? "bg-gradient-to-r from-red-900/20 to-transparent border-l-4 border-red-600" : "hover:bg-[#222] border-l-4 border-transparent"
+                "p-3 rounded-2xl mb-1 flex items-center gap-3 cursor-pointer transition-all border border-transparent group relative select-none",
+                activeChat?.phone === contact.phone
+                  ? "bg-gradient-to-r from-red-900/20 to-transparent border-l-2 border-red-500"
+                  : "hover:bg-white/5",
+                contextMenuContact === contact.phone && "bg-red-900/10 border-red-500/30"
               )}
             >
               <div className="relative">
-                <Avatar src={contact.avatar || contact.avatar_url} size="md" />
-                <span className={cn(
-                  "absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[#181818]",
-                  (contact.status || 'online') === 'online' ? "bg-green-500" :
-                    contact.status === 'busy' ? "bg-red-500" : "bg-gray-500"
-                )} />
+                <img
+                  src={contact.avatar_url || contact.avatar}
+                  onError={(e) => { e.target.onerror = null; e.target.src = 'https://cdn-icons-png.flaticon.com/512/3233/3233508.png'; }}
+                  className="w-12 h-12 rounded-full bg-gray-800 object-cover ring-2 ring-black"
+                />
+                {contact.is_online && <div className="absolute -inset-[2px] rounded-full status-ring z-[-1] opacity-70 animate-pulse"></div>}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="flex justify-between items-baseline mb-0.5">
-                  <h4 className={cn("text-sm font-medium truncate", (activeContact?.id || activeContact?.phone) === (contact.id || contact.phone) ? "text-red-500" : "text-gray-200 group-hover:text-white")}>
-                    {contact.name || contact.username}
-                  </h4>
-                  <span className="text-[10px] text-[#555]">{contact.time || 'now'}</span>
+                <div className="flex justify-between items-baseline">
+                  <h4 className={cn("font-medium text-sm truncate", activeChat?.phone === contact.phone ? "text-red-400" : "text-gray-300")}>{contact.username || contact.name}</h4>
+                  {contact.last_seen && !contact.is_online && <span className="text-[10px] text-gray-600">Last seen {new Date(contact.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
+                  {contact.is_online && <span className="text-[10px] text-green-500/70">Online</span>}
                 </div>
-                <p className="text-xs text-[#666] truncate group-hover:text-[#888]">{contact.lastMsg || 'Joined Zhatn'}</p>
+                <p className="text-xs text-gray-500 truncate group-hover:text-gray-400">Tap to chat with {contact.username}</p>
               </div>
+
+              {/* DELETE ICON (Long Press Only) */}
+              {contextMenuContact === contact.phone && (
+                <div className="absolute inset-0 bg-black/80 backdrop-blur-sm rounded-2xl flex items-center justify-end pr-4 animate-in fade-in duration-200 z-10"
+                  onClick={(e) => e.stopPropagation()} // Prevent closing immediately
+                >
+                  <span className="text-xs text-gray-300 mr-3 font-medium">Delete Chat?</span>
+                  <button
+                    onClick={(e) => {
+                      setContextMenuContact(null); // Close menu first
+                      handleDeleteChat(e, contact);
+                    }}
+                    className="p-2 bg-red-600 rounded-full text-white shadow-lg hover:bg-red-500 transition-transform hover:scale-110 active:scale-95"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setContextMenuContact(null); }}
+                    className="ml-2 p-2 bg-gray-700 rounded-full text-gray-300 hover:bg-gray-600"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>
-      </aside>
+      </div>
 
-      {/* Main Chat Area: Show on Desktop OR Mobile if chat IS open */}
-      <main className={cn(
-        "flex-1 flex-col bg-[#0F0F0F] relative",
-        showMobileChat ? "flex" : "hidden md:flex"
-      )}>
-        {/* Chat Background Effect */}
-        <div className="absolute inset-0 bg-gradient-to-br from-[#0F0F0F] via-[#101010] to-[#141414] pointer-events-none" />
-
-        {!activeContact ? (
-          <div className="flex-1 flex items-center justify-center flex-col text-[#444]">
-            <div className="w-20 h-20 rounded-full bg-[#1E1E1E] flex items-center justify-center mb-4">
-              <User className="w-10 h-10" />
-            </div>
-            <p>Select an agent to begin secure communication</p>
-          </div>
-        ) : (
+      {/* CHAT WINDOW */}
+      <div className="flex-1 flex flex-col relative z-10 bg-black/40 backdrop-blur-3xl">
+        {activeChat ? (
           <>
             {/* Chat Header */}
-            <header className="h-[73px] bg-[#141414]/80 backdrop-blur-md border-b border-[#222] flex items-center justify-between px-6 z-10 sticky top-0">
-              <div className="flex items-center space-x-4">
-                <div className="md:hidden">
-                  <button onClick={() => setShowMobileChat(false)}>
-                    <ArrowLeft className="w-5 h-5 text-gray-400" />
-                  </button>
-                </div>
-                <Avatar src={activeContact.avatar || activeContact.avatar_url} size="md" />
+            <div className="h-16 glass-card !rounded-none !border-x-0 border-b border-white/5 flex items-center justify-between px-6 z-20 bg-[#111]/80">
+              <div className="flex items-center gap-3">
+                <img src={currentChatUser?.avatar_url || currentChatUser?.avatar} className="w-9 h-9 rounded-full shadow-sm ring-1 ring-white/10" />
                 <div>
-                  <h2 className="font-semibold text-lg">{activeContact.name || activeContact.username}</h2>
-                  <p className="text-xs text-green-500 flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                    {activeContact.status || 'online'}
-                  </p>
+                  <h4 className="font-bold text-gray-200 text-sm">{currentChatUser?.username || currentChatUser?.name}</h4>
+                  {currentChatUser?.is_online ?
+                    <span className="text-xs text-green-500 font-medium tracking-wider">ONLINE</span> :
+                    <span className="text-xs text-gray-600">Last seen {new Date(currentChatUser?.last_seen || Date.now()).toLocaleTimeString()}</span>
+                  }
                 </div>
               </div>
+              <div className="flex gap-4 text-gray-500 items-center">
+                <Video onClick={() => setIsCalling(true)} className="w-5 h-5 cursor-pointer hover:text-red-500 transition-colors" />
+                <PhoneIcon onClick={() => setIsCalling(true)} className="w-5 h-5 cursor-pointer hover:text-red-500 transition-colors" />
 
-              <div className="flex items-center space-x-4 text-[#A0A0A0]">
-                <button className="hover:text-red-500 transition-colors bg-[#1E1E1E] p-2 rounded-full"><PhoneIcon className="w-5 h-5" /></button>
-                <button className="hover:text-red-500 transition-colors bg-[#1E1E1E] p-2 rounded-full"><Video className="w-5 h-5" /></button>
-                <button className="hover:text-gray-100 transition-colors bg-[#1E1E1E] p-2 rounded-full"><MoreVertical className="w-5 h-5" /></button>
+                {/* 3-DOT MENU */}
+                <div className="relative">
+                  <MoreVertical onClick={() => setShowMenu(!showMenu)} className="w-5 h-5 cursor-pointer hover:text-white transition-colors" />
+                  {showMenu && (
+                    <div className="absolute right-0 top-8 w-40 glass-panel bg-black/90 border border-white/10 rounded-xl shadow-2xl py-2 flex flex-col z-50">
+                      <button
+                        onClick={() => { handleClearChat(); setShowMenu(false); }}
+                        className="px-4 py-3 text-left text-sm text-gray-300 hover:bg-white/10 hover:text-white transition-colors flex items-center gap-2"
+                      >
+                        <Eraser className="w-4 h-4" /> Clear Chat
+                      </button>
+                      <button
+                        onClick={(e) => { handleDeleteChat(e, activeChat); setShowMenu(false); }}
+                        className="px-4 py-3 text-left text-sm text-red-400 hover:bg-red-900/20 hover:text-red-300 transition-colors flex items-center gap-2"
+                      >
+                        <Trash2 className="w-4 h-4" /> Delete Chat
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
-            </header>
+            </div>
 
-            {/* Messages List */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6 z-0">
-              {messages.map((msg) => {
-                const isMe = msg.senderId === user.phone; // Check against current user's phone/ID
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-8 space-y-3" onClick={() => setShowMenu(false)}>
+              {messages.length === 0 && (
+                <div className="h-full flex flex-col items-center justify-center text-gray-600 opacity-30">
+                  <p>No messages yet.</p>
+                </div>
+              )}
+              {messages.map((msg, i) => {
+                const isMe = msg.sender_id === user.phone;
                 return (
-                  <div
-                    key={msg.id}
-                    className={cn("flex w-full animate-fade-in", isMe ? "justify-end" : "justify-start")}
-                  >
-                    {!isMe && (
-                      <Avatar src={msg.senderAvatar || activeContact.avatar} size="sm" className="mr-3 self-end mb-1" />
-                    )}
-
+                  <div key={i} className={cn("flex w-full animate-liquid-in", isMe ? "justify-end" : "justify-start")}>
                     <div className={cn(
-                      "max-w-[70%] px-5 py-3 rounded-2xl relative shadow-lg leading-relaxed",
-                      isMe
-                        ? "bg-gradient-to-br from-red-700 to-red-900 text-white rounded-br-none"
-                        : "bg-[#2E2E2E] text-gray-200 rounded-bl-none"
+                      "max-w-[60%] px-5 py-3 relative text-sm leading-relaxed shadow-lg flex flex-col gap-2",
+                      isMe ? "bubble-me font-medium" : "bubble-them bg-[#222] text-gray-300"
                     )}>
-                      {!isMe && <div className="text-[10px] text-red-400 font-bold mb-1 opacity-80">{msg.senderName}</div>}
+                      {msg.type === 'text' && msg.content}
+                      {msg.type === 'image' && <img src={msg.content} className="max-w-[200px] rounded-lg border border-white/10" alt="Sent image" />}
+                      {msg.type === 'audio' && <audio controls src={msg.content} className="max-w-[200px] h-8 mt-1" />}
 
-                      {/* Media Content */}
-                      {msg.type === 'image' && (
-                        <img
-                          src={msg.mediaUrl}
-                          alt="Shared image"
-                          className="rounded-lg mb-2 max-w-full cursor-pointer hover:opacity-90 transition-opacity"
-                          onClick={() => window.open(msg.mediaUrl, '_blank')}
-                        />
-                      )}
-                      {msg.type === 'video' && (
-                        <video
-                          src={msg.mediaUrl}
-                          controls
-                          className="rounded-lg mb-2 max-w-full"
-                        />
-                      )}
-
-                      {/* Text Content */}
-                      {msg.text && <p className="text-sm">{msg.text}</p>}
-
-                      <span className={cn(
-                        "text-[10px] mt-1 block opacity-70",
-                        isMe ? "text-red-200 text-right" : "text-gray-400"
-                      )}>
-                        {msg.time}
-                      </span>
+                      <div className={cn("text-[9px] mt-1 flex justify-end gap-1 opacity-70", isMe ? "text-red-200" : "text-gray-500")}>
+                        {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {isMe && (
+                          <>
+                            {/* Tick Logic: Green (Read) > Double (Online/Delivered) > Single (Offline/Sent) */}
+                            {msg.read_status ? (
+                              <CheckCheck className="w-3 h-3 text-green-400" />
+                            ) : currentChatUser?.is_online ? (
+                              <CheckCheck className="w-3 h-3 text-white/50" />
+                            ) : (
+                              <Check className="w-3 h-3 text-white/50" />
+                            )}
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
-                );
+                )
               })}
               <div ref={chatEndRef} />
             </div>
 
-            {/* Input Area */}
-            <div className="p-5 bg-[#0F0F0F] border-t border-[#222] z-10">
-              {/* Media Preview */}
-              {attachedMedia && (
-                <div className="mb-4 relative inline-block">
-                  <div className="relative bg-[#1E1E1E] rounded-lg p-2 border border-red-900/30">
-                    {attachedMedia.type === 'image' && (
-                      <img src={attachedMedia.preview} alt="Preview" className="max-h-32 rounded" />
-                    )}
-                    {attachedMedia.type === 'video' && (
-                      <video src={attachedMedia.preview} className="max-h-32 rounded" controls />
-                    )}
-                    <button
-                      onClick={() => setAttachedMedia(null)}
-                      className="absolute -top-2 -right-2 bg-red-600 hover:bg-red-700 rounded-full p-1 transition-colors"
-                    >
-                      <X className="w-4 h-4 text-white" />
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              <form onSubmit={handleSendMessage} className="flex items-center gap-4 max-w-5xl mx-auto">
-                {/* Camera Button with Dropdown */}
-                <div className="relative group">
-                  <button
-                    type="button"
-                    className="text-[#666] hover:text-red-500 transition-colors p-2 hover:bg-[#1E1E1E] rounded-full"
-                    onClick={() => {
-                      setCameraMode('photo');
-                      setIsCameraOpen(true);
-                    }}
-                  >
-                    <Camera className="w-6 h-6" />
-                  </button>
-
-                  {/* Dropdown Menu */}
-                  <div className="absolute bottom-full left-0 mb-2 hidden group-hover:block bg-[#1E1E1E] rounded-lg shadow-xl border border-[#333] overflow-hidden">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCameraMode('photo');
-                        setIsCameraOpen(true);
-                      }}
-                      className="flex items-center gap-3 px-4 py-3 hover:bg-red-900/20 transition-colors w-full text-left text-sm text-gray-300"
-                    >
-                      <Camera className="w-4 h-4 text-red-500" />
-                      Take Photo
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCameraMode('video');
-                        setIsCameraOpen(true);
-                      }}
-                      className="flex items-center gap-3 px-4 py-3 hover:bg-red-900/20 transition-colors w-full text-left text-sm text-gray-300"
-                    >
-                      <Video className="w-4 h-4 text-red-500" />
-                      Record Video
-                    </button>
-                  </div>
-                </div>
-
-                {/* File Attachment */}
+            {/* Input */}
+            <div className="p-4 pb-6 bg-gradient-to-t from-black to-transparent">
+              <form onSubmit={sendMessage} className="glass-card rounded-full p-2 pl-4 flex items-center gap-2 shadow-2xl border border-white/10 bg-[#1a1a1a]">
                 <input
-                  ref={fileInputRef}
                   type="file"
-                  accept="image/*,video/*"
-                  onChange={handleFileAttachment}
+                  ref={fileInputRef}
                   className="hidden"
+                  accept="image/*"
+                  onChange={handleFileUpload}
                 />
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="text-[#666] hover:text-[#bbb] transition-colors"
-                >
-                  <Paperclip className="w-6 h-6" />
-                </button>
+                <button type="button" onClick={() => fileInputRef.current.click()} className="p-2 text-gray-500 hover:text-gray-300 transition-colors"><ImageIcon className="w-5 h-5" /></button>
 
-                <div className="flex-1 bg-[#1E1E1E] rounded-full flex items-center px-4 py-3 border border-transparent focus-within:border-red-900/50 focus-within:bg-[#222] transition-all duration-300">
-                  <input
-                    type="text"
-                    placeholder="Type your message..."
-                    className="flex-1 bg-transparent text-gray-200 outline-none placeholder-[#555] ml-2"
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                  />
-                  <button type="button" className="text-[#666] hover:text-[#bbb] mx-2">
-                    <Smile className="w-5 h-5" />
+                <input
+                  type="text"
+                  className="flex-1 bg-transparent border-none outline-none text-gray-200 placeholder-gray-600 text-sm"
+                  placeholder="Type a message..."
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                />
+
+                {inputText ? (
+                  <button type="submit" className="p-3 bg-gradient-to-r from-red-600 to-red-800 text-white rounded-full hover:shadow-lg hover:shadow-red-900/50 transition-all shadow-md">
+                    <Send className="w-4 h-4 ml-0.5" />
                   </button>
-                </div>
-
-                <button
-                  type="submit"
-                  className={cn(
-                    "p-4 rounded-full transition-all duration-300 shadow-lg flex items-center justify-center transform hover:scale-105 active:scale-95",
-                    (newMessage.trim() || attachedMedia)
-                      ? "bg-gradient-to-r from-red-600 to-red-700 text-white shadow-red-600/30"
-                      : "bg-[#1E1E1E] text-[#444] cursor-not-allowed"
-                  )}
-                  disabled={!newMessage.trim() && !attachedMedia}
-                >
-                  <Send className="w-5 h-5 ml-0.5" />
-                </button>
+                ) : (
+                  <button type="button" onClick={toggleRecording} className={cn("p-3 transition-colors rounded-full", isRecording ? "bg-red-600 text-white animate-pulse" : "text-gray-500 hover:text-gray-300")}>
+                    <Mic className="w-5 h-5" />
+                  </button>
+                )}
               </form>
             </div>
-
-            {/* Camera Modal */}
-            {/* Camera Modal */}
-            <CameraModal
-              isOpen={isCameraOpen}
-              onClose={() => setIsCameraOpen(false)}
-              onCapture={handleCameraCapture}
-              mode={cameraMode}
-            />
           </>
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center text-gray-600 opacity-50">
+            <div className="w-32 h-32 bg-white/5 rounded-full flex items-center justify-center mb-4 shadow-inner border border-white/5">
+              <div className="text-6xl grayscale opacity-50">🔴</div>
+            </div>
+            <p className="text-lg font-medium tracking-wide">Select a secure channel</p>
+          </div>
         )}
-      </main>
+      </div>
+
+      {/* DETAILS PANEL */}
+      {activeChat && (
+        <div className="w-72 glass-panel border-l border-white/5 hidden xl:flex flex-col items-center p-8 pt-12 bg-black/20">
+          <img src={activeChat.avatar_url || activeChat.avatar} className="w-24 h-24 rounded-full shadow-2xl mb-4 ring-4 ring-white/5" />
+          <h2 className="text-xl font-bold text-gray-200">{activeChat.username || activeChat.name}</h2>
+          <p className="text-sm text-gray-500 mb-8 font-mono">{activeChat.phone}</p>
+          <div className="w-full space-y-2">
+            <h3 className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">Details</h3>
+            <div className="p-4 bg-white/5 rounded-lg border border-white/5 text-xs text-gray-400">
+              Status: <span className="text-white">{activeChat.status || 'Available'}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CALL SIMULATION MODAL */}
+      {isCalling && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md">
+          <div className="glass-card p-10 rounded-3xl flex flex-col items-center animate-liquid-in border border-red-500/30 shadow-[0_0_100px_rgba(220,38,38,0.3)]">
+            <img src={activeChat.avatar_url} className="w-32 h-32 rounded-full mb-6 ring-4 ring-red-500/50 shadow-[0_0_50px_rgba(255,0,0,0.4)] animate-pulse" />
+            <h2 className="text-2xl font-bold text-white mb-2">Calling {activeChat.username}...</h2>
+            <p className="text-red-400 mb-8 tracking-widest uppercase text-xs font-bold">Secure Line Encryption Active</p>
+            <div className="flex gap-6">
+              <button onClick={() => setIsCalling(false)} className="p-6 bg-red-600 rounded-full hover:bg-red-700 transition-all hover:scale-110 shadow-lg shadow-red-900/50">
+                <PhoneIcon className="w-8 h-8 rotate-[135deg] text-white" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+// Icon Helper
+const MessageSquareIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-600"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+)
 
 export default App;
