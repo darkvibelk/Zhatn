@@ -1,4 +1,7 @@
-# Zhatn - Cyber-Noir Chat Application 🔴
+# Zhatn - Cybernoir Chat App 🚀
+
+**Built with React, Supabase, and TailwindCSS.**
+*Live Deployment Triggered* 🔴
 
 A stunning, feature-rich chat application with a **Cyber-Noir** aesthetic. Built with React, Tailwind CSS, and modern web technologies.
 
