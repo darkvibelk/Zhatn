@@ -35,11 +35,29 @@ function App() {
   const [appState, setAppState] = useState('chat'); // 'chat' | 'calls' | 'status'
 
   // Auth State
-  const [authStage, setAuthStage] = useState('phone'); // 'phone' | 'otp' | 'profile'
+  const [authStage, setAuthStage] = useState('welcome'); // 'welcome' | 'phone' | 'otp' | 'pin_setup' | 'pin_entry' | 'profile'
   const [country, setCountry] = useState(COUNTRIES[2]); // Default LK
   const [phoneNumber, setPhoneNumber] = useState('');
   const [otp, setOtp] = useState(['', '', '', '']);
+  const [generatedOtp, setGeneratedOtp] = useState(null); // Dynamic OTP
+  const [pin, setPin] = useState(['', '', '', '']); // Security PIN
+  const [isResettingPin, setIsResettingPin] = useState(false);
   const [profileName, setProfileName] = useState('');
+
+  // Notification System
+  const [notification, setNotification] = useState(null); // { type, message, title }
+
+  const showNotification = (title, message, type = 'info') => {
+    setNotification({ title, message, type });
+    if (type !== 'otp') {
+      setTimeout(() => setNotification(null), 4000);
+    }
+  };
+
+  /* Profile Editing State */
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editAvatar, setEditAvatar] = useState(null);
 
   // Chat State
   const [activeChat, setActiveChat] = useState(null);
@@ -138,24 +156,74 @@ function App() {
     return () => window.removeEventListener('beforeunload', handleUnload);
   }, []);
 
-  const updateOnlineStatus = async (phone, isOnline) => {
-    await supabase.from('profiles').update({
-      is_online: isOnline,
-      last_seen: new Date().toISOString()
-    }).eq('phone', phone);
-  };
 
-  // --- 1. AUTHENTICATION LOGIC ---
+
+
+
+  // --- HEARTBEAT & AUTO-LOCK ---
+  const lastActivity = useRef(Date.now());
+
+  useEffect(() => {
+    if (!user) return;
+
+    // 1. Activity Listener
+    const handleActivity = () => {
+      lastActivity.current = Date.now();
+    };
+
+    window.addEventListener('mousemove', handleActivity);
+    window.addEventListener('keydown', handleActivity);
+    window.addEventListener('touchstart', handleActivity);
+
+    // 2. Heartbeat (Every 30s) - Keep "Online" status fresh if active
+    const heartbeatInterval = setInterval(() => {
+      const now = Date.now();
+      // Only send heartbeat if active recently (e.g., last 1 min)
+      if (now - lastActivity.current < 60000) {
+        updateOnlineStatus(user.phone, true);
+      }
+    }, 30000);
+
+    // 3. Auto-Lock / Idle Check (Every 10s)
+    const idleCheckInterval = setInterval(() => {
+      const now = Date.now();
+      const inactiveTime = now - lastActivity.current;
+
+      // AUTO-LOCK after 2 Minutes (120,000 ms)
+      if (inactiveTime > 120000 && view === 'app') {
+        // Lock the App
+        updateOnlineStatus(user.phone, false); // Mark offline
+        setView('auth');
+        setAuthStage('pin_entry');
+        setPhoneNumber(user.phone.replace(country.dial, '')); // Pre-fill phone for easier re-login
+        showNotification("Security", "Session locked due to inactivity.", "error");
+      }
+    }, 10000);
+
+    return () => {
+      window.removeEventListener('mousemove', handleActivity);
+      window.removeEventListener('keydown', handleActivity);
+      window.removeEventListener('touchstart', handleActivity);
+      clearInterval(heartbeatInterval);
+      clearInterval(idleCheckInterval);
+    };
+  }, [user, view]); // Re-run if user logs in/out or view changes
 
   const handlePhoneSubmit = (e) => {
     e.preventDefault();
     const cleanNumber = phoneNumber.replace(/\D/g, '').replace(/^0+/, '');
     if (cleanNumber.length !== country.len) {
-      alert(`Please enter a valid ${country.len}-digit mobile number.`);
+      showNotification("Invalid Number", `Please enter a valid ${country.len}-digit mobile number.`, 'error');
       return;
     }
     setPhoneNumber(cleanNumber);
-    alert("TESTING MODE: Your verification code is 1234");
+
+    // Generate Random 4-digit Code
+    const randomCode = Math.floor(1000 + Math.random() * 9000).toString();
+    setGeneratedOtp(randomCode);
+
+    // Show "Simulated SMS" Notification
+    showNotification("MESSAGES • Now", `Zhatn! verification code: ${randomCode}`, 'otp');
     setAuthStage('otp');
   };
 
@@ -163,20 +231,42 @@ function App() {
     e.preventDefault();
     const enteredOtp = otp.join('');
 
-    // Custom Passwords for "Admin/Special" Accounts
-    // 987654321 -> Requires 1301
-    // 123456789 -> Requires 1326
-    // Everyone else -> Requires 1234
-
-    let requiredOtp = '1234';
-    if (phoneNumber === '987654321') requiredOtp = '1301';
-    if (phoneNumber === '123456789') requiredOtp = '1326';
-
-    if (enteredOtp === requiredOtp) {
-      checkUserExists();
+    if (enteredOtp === generatedOtp) {
+      setNotification(null); // Clear OTP notification
+      if (isResettingPin) {
+        setAuthStage('pin_setup');
+        setIsResettingPin(false);
+      } else {
+        checkUserExists();
+      }
     } else {
-      // Security measure: maintain illusion
-      alert("Invalid Code (Try 1234)");
+      showNotification("Error", "Invalid verification code. Please try again.", 'error');
+      setOtp(['', '', '', '']);
+    }
+  };
+
+  const handlePinSubmit = async (e) => {
+    e.preventDefault();
+    const enteredPin = pin.join('');
+
+    if (authStage === 'pin_setup') {
+      // Setting up new PIN
+      const fullPhone = `${country.dial}${phoneNumber}`;
+      // Ideally update this during registration, but we can hold it in state and send with profile
+      setAuthStage('profile');
+    } else if (authStage === 'pin_entry') {
+      // Verifying existing PIN
+      const fullPhone = `${country.dial}${phoneNumber}`;
+      const { data } = await supabase.from('profiles').select('secret_pin').eq('phone', fullPhone).single();
+
+      if (data && data.secret_pin === enteredPin) {
+        // Re-fetch full user data to login
+        const { data: userData } = await supabase.from('profiles').select('*').eq('phone', fullPhone).single();
+        loginUser(userData);
+      } else {
+        showNotification("Access Denied", "Incorrect Security PIN.", 'error');
+        setPin(['', '', '', '']);
+      }
     }
   };
 
@@ -184,9 +274,19 @@ function App() {
     const fullPhone = `${country.dial}${phoneNumber}`;
     const { data } = await supabase.from('profiles').select('*').eq('phone', fullPhone).single();
     if (data) {
-      loginUser(data);
+      // User exists, ask for PIN
+      if (data.secret_pin) {
+        setAuthStage('pin_entry');
+      } else {
+        // Legacy user without PIN -> Force setup or login directly? 
+        // For security, let's treat them as needing setup, but that might fail login.
+        // Let's assume schema update ran and they have default '1234' or NULL.
+        // If NULL, we must force setup or default.
+        // DECISION: If no PIN set, go to PIN Setup to secure the account.
+        setAuthStage('pin_setup');
+      }
     } else {
-      setAuthStage('profile');
+      setAuthStage('pin_setup'); // New users set PIN first
     }
   };
 
@@ -221,6 +321,42 @@ function App() {
     }
   };
 
+  // --- AUTOMATED WELCOME MESSAGES ---
+  const sendWelcomeMessages = async (receiverPhone) => {
+    const timestamp = new Date().toISOString();
+
+    // 1. Ensure Sender Profiles Exist (Idempotent-ish)
+    // We assume these 'Special' profiles are created/ensured by the login logic of the developer 
+    // or we can just send the message. Supabase foreign keys might fail if sender doesn't exist?
+    // For prototype, we assume we can insert messages even if sender_id not in profiles if constraint isn't strict,
+    // OR we just assume they exist. To be safe, let's just insert the messages.
+
+    const messages = [
+      {
+        sender_id: '123456789', // Zhatn!
+        sender_name: 'Zhatn!',
+        receiver_id: receiverPhone,
+        content: "Welcome to 🔴 Zhatn! 🙌 Thank you for joining. Your feedback helps us improve every day. \n\nv1.1",
+        type: 'text',
+        read_status: false,
+        created_at: timestamp
+      },
+      {
+        sender_id: '987654321', // Dark Vibe
+        sender_name: 'Dark Vibe',
+        receiver_id: receiverPhone,
+        content: "Do you who develop this!\nSimply *3idiots#\nhttps://darkvibelk.pages.dev/",
+        type: 'text',
+        read_status: false,
+        created_at: new Date(Date.now() + 1000).toISOString() // +1 second
+      }
+    ];
+
+    // Use supabase directly, don't await to block UI
+    const { error } = await supabase.from('messages').insert(messages);
+    if (error) console.error("Welcome Msg Error:", error);
+  };
+
   const handleRegister = async (e) => {
     e.preventDefault();
     if (!profileName || !gender) {
@@ -245,7 +381,8 @@ function App() {
       gender: gender,
       avatar_url: finalAvatar,
       status: 'online',
-      is_online: true
+      is_online: true,
+      secret_pin: pin.join('')
     };
 
     // Use upsert to handle potential race conditions or re-registrations
@@ -261,6 +398,9 @@ function App() {
       console.error("Registration Error:", error);
       alert("Error registering: " + error.message);
     } else {
+      // Send Welcome Messages (Async)
+      sendWelcomeMessages(newUser.phone);
+
       // Use returned data to ensure we have the DB version (though newUser is fine)
       loginUser(data || newUser);
     }
@@ -301,6 +441,39 @@ function App() {
     fetchMyChats(userWithSession);
   };
 
+  const handleUpdateProfile = async (e) => {
+    e.preventDefault();
+    if (!editName.trim()) {
+      showNotification("Error", "Name cannot be empty.", 'error');
+      return;
+    }
+
+    try {
+      // 1. Update in Supabase
+      const updates = {
+        username: editName,
+        avatar_url: editAvatar
+      };
+
+      const { error } = await supabase.from('profiles').update(updates).eq('phone', user.phone);
+
+      if (error) throw error;
+
+      // 2. Update Local State
+      const updatedUser = { ...user, ...updates };
+      setUser(updatedUser);
+      localStorage.setItem('zhatn_user', JSON.stringify(updatedUser)); // Persist
+
+      // 3. Close & Notify
+      setIsEditingProfile(false);
+      showNotification("Success", "Profile updated successfully.", 'success');
+
+    } catch (err) {
+      console.error("Update Error:", err);
+      showNotification("Error", "Failed to update profile.", 'error');
+    }
+  };
+
   const handleLogout = () => {
     if (confirm("Are you sure you want to log out?")) {
       if (user) updateOnlineStatus(user.phone, false);
@@ -310,6 +483,7 @@ function App() {
       setAuthStage('phone');
       setPhoneNumber('');
       setOtp(['', '', '', '']);
+      setPin(['', '', '', '']);
       setActiveChat(null);
     }
   };
@@ -647,7 +821,27 @@ function App() {
   // --- RENDER ---
   if (view === 'auth') {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-y-auto">
+      <div className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-y-auto overflow-x-hidden">
+        {/* NOTIFICATION BANNER */}
+        {notification && (
+          <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-sm animate-in slide-in-from-top-2">
+            <div className={cn(
+              "glass-card p-4 rounded-xl border flex items-center gap-3 shadow-2xl backdrop-blur-xl",
+              notification.type === 'error' ? "border-red-500/50 bg-red-950/80" : "border-white/10 bg-[#111]/90"
+            )}>
+              <div className={cn("p-2 rounded-full", notification.type === 'error' ? "bg-red-500/20" : "bg-white/5")}>
+                {notification.type === 'error' ? <X className="w-5 h-5 text-red-500" /> : <div className="w-5 h-5 text-white flex items-center justify-center font-bold">💬</div>}
+              </div>
+              <div className="flex-1">
+                <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider">{notification.title}</h4>
+                <p className="text-sm font-medium text-white">{notification.message}</p>
+              </div>
+              {notification.type === 'otp' && (
+                <button onClick={() => setNotification(null)} className="p-1 hover:bg-white/10 rounded-full"><X className="w-4 h-4 text-gray-400" /></button>
+              )}
+            </div>
+          </div>
+        )}
         {/* Animated Background Blobs */}
         <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-red-900/20 rounded-full blur-[100px] animate-pulse"></div>
         <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-red-600/10 rounded-full blur-[100px] animate-pulse delay-700"></div>
@@ -655,8 +849,37 @@ function App() {
         <div className="glass-card w-full max-w-md p-8 rounded-3xl animate-liquid-in relative z-10">
           <div className="text-center mb-10">
             <img src="/zhatn-logo.png" className="w-24 h-24 mx-auto mb-4 rounded-3xl shadow-xl hover:scale-105 transition-transform duration-500" alt="Zhatn Logo" />
-            <h1 className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-red-500 to-red-700 mb-2 drop-shadow-sm">Zhatn.</h1>
+            <h1 className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-red-500 to-red-700 mb-2 drop-shadow-sm">Zhatn!</h1>
           </div>
+
+          {authStage === 'welcome' && (
+            <div className="text-center space-y-6 animate-in fade-in duration-500">
+
+              <div className="space-y-3">
+                <h2 className="text-2xl font-bold text-white tracking-wide">Welcome to Zhatn!</h2>
+                <p className="text-sm text-gray-400 leading-relaxed">
+                  The future of secure, private messaging.
+                </p>
+                <div className="flex justify-center gap-4 text-xs text-gray-500 py-2">
+                  <span className="flex items-center gap-1"><Check className="w-3 h-3 text-red-500" /> Private</span>
+                  <span className="flex items-center gap-1"><Check className="w-3 h-3 text-red-500" /> Secure</span>
+                  <span className="flex items-center gap-1"><Check className="w-3 h-3 text-red-500" /> Fast</span>
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  onClick={() => setAuthStage('phone')}
+                  className="btn-liquid w-full py-4 rounded-xl text-lg shadow-lg shadow-red-900/40 group"
+                >
+                  Agree & Continue
+                </button>
+                <p className="text-[10px] text-gray-600 mt-4">
+                  By tapping "Agree & Continue", you accept the <a href="#" className="text-red-400 hover:underline">Terms of Service</a> and <a href="#" className="text-red-400 hover:underline">Privacy Policy</a>.
+                </p>
+              </div>
+            </div>
+          )}
 
           {authStage === 'phone' && (
             <form onSubmit={handlePhoneSubmit} className="space-y-6">
@@ -664,7 +887,7 @@ function App() {
                 <label className="text-xs font-semibold text-gray-400 uppercase ml-2">Country Code</label>
                 <div className="grid grid-cols-[100px_1fr] gap-3">
                   <select
-                    className="input-pill px-3 appearance-none cursor-pointer text-white bg-[#333]"
+                    className="input-pill px-3 appearance-none cursor-pointer text-white bg-[#333] w-full"
                     value={country.code}
                     onChange={(e) => setCountry(COUNTRIES.find(c => c.code === e.target.value))}
                   >
@@ -672,7 +895,7 @@ function App() {
                   </select>
                   <input
                     type="tel"
-                    className="input-pill font-mono text-lg tracking-wide text-white"
+                    className="input-pill font-mono text-lg tracking-wide text-white w-full"
                     placeholder="Mobile Number"
                     maxLength={country.len}
                     value={phoneNumber}
@@ -690,30 +913,118 @@ function App() {
           )}
 
           {authStage === 'otp' && (
-            <form onSubmit={handleOtpVerify} className="space-y-6 text-center">
-              <p className="text-sm text-gray-400 mb-4">
-                Code sent to <b className="text-white">{country.dial} {phoneNumber}</b><br />
-                <span className="text-red-400 font-bold">(Test Code: 1234)</span>
-              </p>
+            <form onSubmit={handleOtpVerify} className="space-y-6">
+              <div className="text-center space-y-2">
+                <h2 className="text-2xl font-bold text-white">Verification</h2>
+                <p className="text-gray-400 text-sm">
+                  Enter the dynamic verification code sent to your device notification.
+                </p>
+              </div>
+
               <div className="flex justify-center gap-3">
-                {otp.map((d, i) => (
+                {otp.map((digit, i) => (
                   <input
                     key={i}
+                    id={`otp-${i}`}
                     type="text"
                     maxLength={1}
-                    className="w-14 h-16 rounded-2xl border border-white/10 bg-white/5 text-center text-white text-2xl font-bold focus:ring-2 ring-red-500/50 outline-none backdrop-blur shadow-sm"
-                    value={d}
+                    className="w-12 h-14 rounded-xl bg-white/5 border border-white/10 text-center text-2xl font-bold focus:border-red-500 focus:bg-red-500/10 focus:outline-none transition-all placeholder-gray-700"
+                    placeholder="•"
+                    value={digit}
                     onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '');
+                      if (!val && !digit) return; // Allow backspace
+
                       const newOtp = [...otp];
-                      newOtp[i] = e.target.value;
+                      newOtp[i] = val.substring(val.length - 1);
                       setOtp(newOtp);
-                      if (e.target.value && i < 3) document.getElementById(`otp-${i + 1}`)?.focus();
+
+                      if (val && i < 3) document.getElementById(`otp-${i + 1}`).focus();
                     }}
-                    id={`otp-${i}`}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Backspace' && !otp[i] && i > 0) {
+                        document.getElementById(`otp-${i - 1}`).focus();
+                      }
+                    }}
                   />
                 ))}
               </div>
-              <button type="submit" className="btn-liquid w-full py-4 rounded-xl text-lg mt-4 shadow-red-900/40">Verify Identity</button>
+
+              <button type="submit" className="btn-primary w-full py-3 rounded-xl font-bold flex items-center justify-center gap-2">
+                Verify Code <Check className="w-4 h-4" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setAuthStage('phone')}
+                className="w-full text-sm text-gray-500 hover:text-white transition-colors"
+              >
+                Change Number
+              </button>
+            </form>
+          )}
+
+          {(authStage === 'pin_setup' || authStage === 'pin_entry') && (
+            <form onSubmit={handlePinSubmit} className="space-y-6">
+              <div className="text-center space-y-2">
+                <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/20">
+                  <div className="w-8 h-8 text-red-500"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></div>
+                </div>
+                <h2 className="text-2xl font-bold text-white">
+                  {authStage === 'pin_setup' ? 'Create Security PIN' : 'Enter Security PIN'}
+                </h2>
+                <p className="text-gray-400 text-sm">
+                  {authStage === 'pin_setup'
+                    ? 'Set a 4-digit PIN to secure your account.'
+                    : 'Enter your 4-digit PIN to access your chats.'}
+                </p>
+              </div>
+
+              <div className="flex justify-center gap-3">
+                {pin.map((digit, i) => (
+                  <input
+                    key={i}
+                    id={`pin-${i}`}
+                    type="password"
+                    maxLength={1}
+                    className="w-12 h-14 rounded-xl bg-white/5 border border-white/10 text-center text-2xl font-bold focus:border-red-500 focus:bg-red-500/10 focus:outline-none transition-all placeholder-gray-700"
+                    placeholder="•"
+                    value={digit}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '');
+                      const newPin = [...pin];
+                      newPin[i] = val.substring(val.length - 1);
+                      setPin(newPin);
+                      if (val && i < 3) document.getElementById(`pin-${i + 1}`).focus();
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Backspace' && !pin[i] && i > 0) {
+                        document.getElementById(`pin-${i - 1}`).focus();
+                      }
+                    }}
+                  />
+                ))}
+              </div>
+
+              <button type="submit" className="btn-primary w-full py-3 rounded-xl font-bold flex items-center justify-center gap-2">
+                {authStage === 'pin_setup' ? 'Set PIN & Continue' : 'Unlock Zhatn!'} <ArrowLeft className="w-4 h-4 rotate-180" />
+              </button>
+
+              {authStage === 'pin_entry' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const randomCode = Math.floor(1000 + Math.random() * 9000).toString();
+                    setGeneratedOtp(randomCode);
+                    setIsResettingPin(true);
+                    setAuthStage('otp');
+                    showNotification("Reset PIN", `Verification code: ${randomCode}`, 'otp');
+                  }}
+                  className="text-xs text-gray-400 hover:text-white mt-4 underline decoration-white/20 hover:decoration-white transition-all w-full text-center block"
+                >
+                  Forgot PIN?
+                </button>
+              )}
             </form>
           )}
 
@@ -774,8 +1085,8 @@ function App() {
         {/* FOOTER (External) */}
         {/* FOOTER (External) */}
         <div className="mt-6 text-center space-y-2 relative z-10">
-          <p className="text-[10px] text-white/50 font-medium tracking-widest uppercase mb-2">Zhatn - Future of Privacy</p>
-          <p className="text-[10px] text-white/40 font-light tracking-wider">v1.0 — 7 Days Built</p>
+          <p className="text-[10px] text-white/50 font-medium tracking-widest uppercase mb-2">Zhatn! - Future of Privacy</p>
+          <p className="text-[10px] text-white/40 font-light tracking-wider">v1.1</p>
           <p className="text-[10px] text-white/40 font-light">
             Deployed by <a href="https://darkvibelk.pages.dev/" target="_blank" rel="noopener noreferrer" className="font-medium text-white/60 hover:text-red-400 transition-colors">Dark Vibe</a>
           </p>
@@ -788,23 +1099,34 @@ function App() {
   }
 
   // --- APP VIEW ---
-  if (!user) return <div className="h-screen flex items-center justify-center text-red-500 animate-pulse">Loading Zhatn...</div>;
+  if (!user) return <div className="h-screen flex items-center justify-center text-red-500 animate-pulse">Loading Zhatn!...</div>;
 
   return (
     <div className="h-screen w-full flex bg-[#050505] overflow-hidden text-gray-200">
 
       {/* SIDEBAR */}
-      <div className="w-96 glass-panel flex flex-col z-20 border-r border-white/5">
+      <div className={cn("glass-panel flex flex-col z-20 border-r border-white/5 transition-all duration-300", activeChat ? "hidden md:flex w-full md:w-96" : "flex w-full md:w-96")}>
         {/* Header */}
         <div className="p-5 flex items-center justify-between border-b border-white/5">
-          <div className="flex items-center gap-3">
-            <img src={user.avatar_url} className="w-10 h-10 rounded-full border border-white/10 shadow-sm" alt="Me" />
-            <h3 className="font-semibold text-white tracking-wide">{user.username}</h3>
+          <div className="flex items-center gap-3 cursor-pointer group" onClick={() => {
+            setEditName(user.username);
+            setEditAvatar(user.avatar_url);
+            setIsEditingProfile(true);
+          }}>
+            <div className="relative">
+              <img src={user.avatar_url} className="w-10 h-10 rounded-full border border-white/10 shadow-sm transition-transform group-hover:scale-105" alt="Me" />
+              <div className="absolute inset-0 bg-black/50 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                <div className="w-3 h-3 text-white">✎</div>
+              </div>
+            </div>
+            <h3 className="font-semibold text-white tracking-wide group-hover:text-red-400 transition-colors">{user.username}</h3>
           </div>
-          <div className="flex gap-2 text-gray-400">
-            <button onClick={handleLogout} className="p-2 hover:bg-white/10 hover:text-red-500 rounded-full transition-colors" title="Logout"><LogOut className="w-5 h-5" /></button>
-          </div>
+          <h3 className="font-semibold text-white tracking-wide">{user.username}</h3>
         </div>
+        <div className="flex gap-2 text-gray-400">
+          <button onClick={handleLogout} className="p-2 hover:bg-white/10 hover:text-red-500 rounded-full transition-colors" title="Logout"><LogOut className="w-5 h-5" /></button>
+        </div>
+
 
         {/* Search */}
         <div className="p-4">
@@ -872,7 +1194,8 @@ function App() {
                 <div className="flex justify-between items-baseline">
                   <h4 className={cn("font-medium text-sm truncate", activeChat?.phone === contact.phone ? "text-red-400" : "text-gray-300")}>{contact.username || contact.name}</h4>
                   {contact.last_seen && !contact.is_online && <span className="text-[10px] text-gray-600">Last seen {new Date(contact.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
-                  {contact.is_online && <span className="text-[10px] text-green-500/70">Online</span>}
+                  {/* Visual Logic: Check if actually online (Heartbeat < 60s ago) */}
+                  {contact.is_online && (new Date().getTime() - new Date(contact.last_seen || 0).getTime() < 60000) && <span className="text-[10px] text-green-500/70">Online</span>}
                 </div>
                 <p className="text-xs text-gray-500 truncate group-hover:text-gray-400">Tap to chat with {contact.username}</p>
               </div>
@@ -905,13 +1228,20 @@ function App() {
         </div>
       </div>
 
-      {/* CHAT WINDOW */}
-      <div className="flex-1 flex flex-col relative z-10 bg-black/40 backdrop-blur-3xl">
+      <div className={cn("flex-col relative z-10 bg-black/40 backdrop-blur-3xl transition-all duration-300", activeChat ? "flex flex-1" : "hidden md:flex flex-1")}>
         {activeChat ? (
           <>
             {/* Chat Header */}
-            <div className="h-16 glass-card !rounded-none !border-x-0 border-b border-white/5 flex items-center justify-between px-6 z-20 bg-[#111]/80">
+            <div className="h-16 glass-card !rounded-none !border-x-0 border-b border-white/5 flex items-center justify-between px-4 md:px-6 z-20 bg-[#111]/80">
               <div className="flex items-center gap-3">
+                {/* Mobile Back Button */}
+                <button
+                  onClick={() => setActiveChat(null)}
+                  className="md:hidden p-2 -ml-2 text-gray-400 hover:text-white"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+
                 <img src={currentChatUser?.avatar_url || currentChatUser?.avatar} className="w-9 h-9 rounded-full shadow-sm ring-1 ring-white/10" />
                 <div>
                   <h4 className="font-bold text-gray-200 text-sm">{currentChatUser?.username || currentChatUser?.name}</h4>
@@ -1032,42 +1362,137 @@ function App() {
       </div>
 
       {/* DETAILS PANEL */}
-      {activeChat && (
-        <div className="w-72 glass-panel border-l border-white/5 hidden xl:flex flex-col items-center p-8 pt-12 bg-black/20">
-          <img src={activeChat.avatar_url || activeChat.avatar} className="w-24 h-24 rounded-full shadow-2xl mb-4 ring-4 ring-white/5" />
-          <h2 className="text-xl font-bold text-gray-200">{activeChat.username || activeChat.name}</h2>
-          <p className="text-sm text-gray-500 mb-8 font-mono">{activeChat.phone}</p>
-          <div className="w-full space-y-2">
-            <h3 className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">Details</h3>
-            <div className="p-4 bg-white/5 rounded-lg border border-white/5 text-xs text-gray-400">
-              Status: <span className="text-white">{activeChat.status || 'Available'}</span>
+      {
+        activeChat && (
+          <div className="w-72 glass-panel border-l border-white/5 hidden xl:flex flex-col items-center p-8 pt-12 bg-black/20">
+            <img src={activeChat.avatar_url || activeChat.avatar} className="w-24 h-24 rounded-full shadow-2xl mb-4 ring-4 ring-white/5" />
+            <h2 className="text-xl font-bold text-gray-200">{activeChat.username || activeChat.name}</h2>
+            <p className="text-sm text-gray-500 mb-8 font-mono">{activeChat.phone}</p>
+            <div className="w-full space-y-2">
+              <h3 className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">Details</h3>
+              <div className="p-4 bg-white/5 rounded-lg border border-white/5 text-xs text-gray-400">
+                Status: <span className="text-white">{activeChat.status || 'Available'}</span>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* CALL SIMULATION MODAL */}
-      {isCalling && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md">
-          <div className="glass-card p-10 rounded-3xl flex flex-col items-center animate-liquid-in border border-red-500/30 shadow-[0_0_100px_rgba(220,38,38,0.3)]">
-            <img src={activeChat.avatar_url} className="w-32 h-32 rounded-full mb-6 ring-4 ring-red-500/50 shadow-[0_0_50px_rgba(255,0,0,0.4)] animate-pulse" />
-            <h2 className="text-2xl font-bold text-white mb-2">Calling {activeChat.username}...</h2>
-            <p className="text-red-400 mb-8 tracking-widest uppercase text-xs font-bold">Secure Line Encryption Active</p>
-            <div className="flex gap-6">
-              <button onClick={() => setIsCalling(false)} className="p-6 bg-red-600 rounded-full hover:bg-red-700 transition-all hover:scale-110 shadow-lg shadow-red-900/50">
-                <PhoneIcon className="w-8 h-8 rotate-[135deg] text-white" />
-              </button>
+      {
+        isCalling && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md">
+            <div className="glass-card p-10 rounded-3xl flex flex-col items-center animate-liquid-in border border-red-500/30 shadow-[0_0_100px_rgba(220,38,38,0.3)]">
+              <img src={activeChat.avatar_url} className="w-32 h-32 rounded-full mb-6 ring-4 ring-red-500/50 shadow-[0_0_50px_rgba(255,0,0,0.4)] animate-pulse" />
+              <h2 className="text-2xl font-bold text-white mb-2">Calling {activeChat.username}...</h2>
+              <p className="text-red-400 mb-8 tracking-widest uppercase text-xs font-bold">Secure Line Encryption Active</p>
+              <div className="flex gap-6">
+                <button onClick={() => setIsCalling(false)} className="p-6 bg-red-600 rounded-full hover:bg-red-700 transition-all hover:scale-110 shadow-lg shadow-red-900/50">
+                  <PhoneIcon className="w-8 h-8 rotate-[135deg] text-white" />
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
+      {/* EDIT PROFILE MODAL */}
+      {
+        isEditingProfile && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+            <div className="glass-card w-full max-w-sm rounded-3xl p-6 border border-white/10 shadow-2xl relative">
+              <button
+                onClick={() => setIsEditingProfile(false)}
+                className="absolute top-4 right-4 p-2 text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-full transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <h3 className="text-xl font-bold text-white mb-6 text-center">Edit Profile</h3>
+
+              <form onSubmit={handleUpdateProfile} className="space-y-6">
+                {/* Avatar Edit */}
+                <div className="flex flex-col items-center gap-3">
+                  <div
+                    onClick={() => document.getElementById('edit-avatar-input').click()}
+                    className="w-28 h-28 rounded-full border-2 border-red-500/50 p-1 cursor-pointer hover:border-red-500 transition-colors relative group"
+                  >
+                    <img src={editAvatar} className="w-full h-full rounded-full object-cover" />
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                      <ImageIcon className="w-8 h-8 text-white/80" />
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-500">Tap to change photo</p>
+                  <input
+                    id="edit-avatar-input"
+                    type="file"
+                    className="hidden"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (ev) => {
+                          // Simple resize logic could be reused here if extracted, 
+                          // for now valid base64 is fine for low volume
+                          setEditAvatar(ev.target.result);
+                        }
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                  />
+                </div>
+
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-500 uppercase ml-2">Display Name</label>
+                    <input
+                      type="text"
+                      className="input-pill w-full text-white px-4 py-3"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      placeholder="Your Name"
+                    />
+                  </div>
+
+                  <div className="space-y-1 opacity-60">
+                    <label className="text-xs font-semibold text-gray-500 uppercase ml-2">Phone Number</label>
+                    <input
+                      type="text"
+                      className="input-pill w-full text-gray-400 px-4 py-3 cursor-not-allowed border-dashed border-white/10"
+                      value={user.phone}
+                      disabled
+                    />
+                    <p className="text-[10px] text-gray-600 ml-2">Phone number cannot be changed.</p>
+                  </div>
+                </div>
+
+                <div className="pt-2 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingProfile(false)}
+                    className="flex-1 py-3 rounded-xl border border-white/10 text-gray-400 hover:bg-white/5 hover:text-white transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-3 rounded-xl bg-red-600 text-white font-semibold shadow-lg shadow-red-900/40 hover:bg-red-500 transition-colors"
+                  >
+                    Save Changes
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )
+      }
     </div>
   );
 }
 
 // Icon Helper
 const MessageSquareIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-600"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-600"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
 )
 
 export default App;
