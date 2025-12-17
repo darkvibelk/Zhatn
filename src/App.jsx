@@ -181,8 +181,15 @@ function App() {
   const [activeInfoModal, setActiveInfoModal] = useState(null); // 'terms', 'privacy', 'help' or null
 
   // Global State
-  const [user, setUser] = useState(null); // Authenticated User
-  const [view, setView] = useState('auth'); // 'auth' | 'app'
+  const [user, setUser] = useState(() => {
+    try {
+      const saved = localStorage.getItem('zhatn_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+  const [view, setView] = useState(() => localStorage.getItem('zhatn_user') ? 'app' : 'auth'); // Lazy init view
   const [appState, setAppState] = useState('chat'); // 'chat' | 'calls' | 'status'
 
   // Auth State
@@ -1573,16 +1580,19 @@ function App() {
 
         {/* FOOTER (External) */}
         {/* FOOTER (External) */}
-        <div className="mt-6 text-center space-y-2 relative z-10">
-          <p className="text-[10px] text-white/50 font-medium tracking-widest uppercase mb-2">Zhatn! - Future of Privacy</p>
-          <p className="text-[10px] text-white/40 font-light tracking-wider">v1.2</p>
-          <p className="text-[10px] text-white/40 font-light">
-            Deployed by <a href="https://darkvibelk.pages.dev/" target="_blank" rel="noopener noreferrer" className="font-medium text-white/60 hover:text-red-400 transition-colors">Dark Vibe</a>
-          </p>
-          <a href="https://darkvibelk.pages.dev/contact?service=zhatn" target="_blank" rel="noopener noreferrer" className="text-[10px] text-white/30 hover:text-red-400 transition-colors block mt-2">
-            Send Suggestions & Feedback
-          </a>
-        </div>
+        {/* FOOTER (External) - Welcome Only */}
+        {authStage === 'welcome' && (
+          <div className="mt-6 text-center space-y-2 relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
+            <p className="text-[10px] text-white/50 font-medium tracking-widest uppercase mb-2">Zhatn! - Future of Privacy</p>
+            <p className="text-[10px] text-white/40 font-light tracking-wider">v1.2</p>
+            <p className="text-[10px] text-white/40 font-light">
+              Deployed by <a href="https://darkvibelk.pages.dev/" target="_blank" rel="noopener noreferrer" className="font-medium text-white/60 hover:text-red-400 transition-colors">Dark Vibe</a>
+            </p>
+            <a href="https://darkvibelk.pages.dev/contact?service=zhatn" target="_blank" rel="noopener noreferrer" className="text-[10px] text-white/30 hover:text-red-400 transition-colors block mt-2">
+              Send Suggestions & Feedback
+            </a>
+          </div>
+        )}
         {/* BROADCAST MODAL */}
         {isBroadcasting && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4 animate-in fade-in">
