@@ -26,7 +26,7 @@ const COUNTRIES = [
 ];
 
 const ADMIN_NUMBERS = ['123456789', '987654321'];
-const isAdmin = (phone) => ADMIN_NUMBERS.includes(phone);
+const isAdmin = (phone) => phone && ADMIN_NUMBERS.some(adminNum => phone.includes(adminNum));
 
 /**
  * ZHATN V2 - Main Application
