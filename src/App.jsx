@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { User, Phone as PhoneIcon, Video, MoreVertical, Send, Paperclip, Mic, Search, LogOut, ArrowLeft, X, Check, CheckCheck, Clock, Plus, Image as ImageIcon, Trash2, Eraser } from 'lucide-react';
+import { User, Phone as PhoneIcon, Video, MoreVertical, Send, Paperclip, Mic, Search, LogOut, ArrowLeft, X, Check, CheckCheck, Clock, Plus, Image as ImageIcon, Trash2, Eraser, BadgeCheck } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -24,6 +24,9 @@ const COUNTRIES = [
   { code: 'AU', dial: '+61', flag: '🇦🇺', len: 9 },
   { code: 'CA', dial: '+1', flag: '🇨🇦', len: 10 },
 ];
+
+const ADMIN_NUMBERS = ['123456789', '987654321'];
+const isAdmin = (phone) => ADMIN_NUMBERS.includes(phone);
 
 /**
  * ZHATN V2 - Main Application
@@ -58,6 +61,10 @@ function App() {
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editName, setEditName] = useState('');
   const [editAvatar, setEditAvatar] = useState(null);
+
+  // Broadcast State
+  const [isBroadcasting, setIsBroadcasting] = useState(false);
+  const [broadcastMessage, setBroadcastMessage] = useState('');
 
   // Chat State
   const [activeChat, setActiveChat] = useState(null);
@@ -533,19 +540,73 @@ function App() {
           .select('*')
           .in('phone', Array.from(uniqueIds));
 
-        if (profiles) {
-          // SORTING: Database 'in()' query does not preserve order. 
-          // Re-sort profiles based on the order they appeared in the 'messages' query (most recent first).
-          const sortedIds = Array.from(uniqueIds);
-          profiles.sort((a, b) => sortedIds.indexOf(a.phone) - sortedIds.indexOf(b.phone));
+        // PINNED CHATS: Ensure Admins are always at the top
+        const admins = await supabase.from('profiles').select('*').in('phone', ADMIN_NUMBERS);
 
-          setMyChats(profiles);
-          setContacts(profiles); // Default view is my chats
+        let finalContacts = profiles;
+
+        if (admins.data) {
+          // Filter out admins from the 'history' list so we don't duplicate
+          finalContacts = profiles.filter(p => !ADMIN_NUMBERS.includes(p.phone));
+          // Prepend admins
+          finalContacts = [...admins.data, ...finalContacts];
         }
+
+        setMyChats(finalContacts);
+        setContacts(finalContacts);
+      }
+    } else {
+      // Even if no history, show Admins
+      const { data: admins } = await supabase.from('profiles').select('*').in('phone', ADMIN_NUMBERS);
+      if (admins) {
+        setMyChats(admins);
+        setContacts(admins);
       } else {
         setMyChats([]);
         setContacts([]);
       }
+    }
+  }
+
+
+
+  // --- BROADCAST LOGIC ---
+  const handleBroadcast = async (e) => {
+    e.preventDefault();
+    if (!broadcastMessage.trim()) return;
+    if (!isAdmin(user.phone)) {
+      alert("Unauthorized");
+      return;
+    }
+
+    if (!confirm("⚠️ SEND TO ALL USERS?\nThis will message every registered user.")) return;
+
+    try {
+      const { data: allUsers } = await supabase.from('profiles').select('phone').neq('phone', user.phone);
+
+      if (allUsers && allUsers.length > 0) {
+        const timestamp = new Date().toISOString();
+        const msgs = allUsers.map(u => ({
+          sender_id: user.phone,
+          sender_name: user.username,
+          receiver_id: u.phone,
+          content: broadcastMessage,
+          type: 'text',
+          read_status: false,
+          created_at: timestamp
+        }));
+
+        // Batch insert
+        const { error } = await supabase.from('messages').insert(msgs);
+        if (error) throw error;
+
+        alert(`✅ Broadcast sent to ${allUsers.length} users.`);
+        setBroadcastMessage("");
+        setIsBroadcasting(false);
+      }
+    } catch (err) {
+      console.error("Broadcast Error:", err);
+      alert("Failed to broadcast.");
     }
   };
 
@@ -1109,6 +1170,31 @@ function App() {
             Send Suggestions & Feedback
           </a>
         </div>
+        {/* BROADCAST MODAL */}
+        {isBroadcasting && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4 animate-in fade-in">
+            <div className="glass-card w-full max-w-md rounded-3xl p-6 border border-red-500/30 shadow-[0_0_50px_rgba(220,38,38,0.2)] relative">
+              <button onClick={() => setIsBroadcasting(false)} className="absolute top-4 right-4 text-gray-500 hover:text-white"><X className="w-5 h-5" /></button>
+              <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
+                <BadgeCheck className="w-6 h-6 text-red-500" /> Admin Broadcast
+              </h3>
+              <p className="text-sm text-gray-400 mb-6">Send a message to ALL users.</p>
+
+              <form onSubmit={handleBroadcast}>
+                <textarea
+                  className="w-full h-32 bg-black/40 border border-white/10 rounded-xl p-4 text-white resize-none focus:border-red-500 transition-colors outline-none"
+                  placeholder="Type your announcement..."
+                  value={broadcastMessage}
+                  onChange={e => setBroadcastMessage(e.target.value)}
+                ></textarea>
+                <button type="submit" className="w-full mt-4 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-lg transition-all">
+                  SEND BROADCAST
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+
       </div>
     );
   }
@@ -1134,10 +1220,17 @@ function App() {
                 <div className="w-3 h-3 text-white">✎</div>
               </div>
             </div>
-            <h3 className="font-semibold text-white tracking-wide group-hover:text-red-400 transition-colors">{user.username}</h3>
+            <h3 className="font-semibold text-white tracking-wide group-hover:text-red-400 transition-colors flex items-center gap-1">
+              {user.username}
+              {isAdmin(user.phone) && <BadgeCheck className="w-4 h-4 text-red-500 fill-red-500/10" />}
+            </h3>
           </div>
           <div className="flex items-center gap-3">
-            <h3 className="font-semibold text-white tracking-wide">{user.username}</h3>
+            {isAdmin(user.phone) && (
+              <button onClick={() => setIsBroadcasting(true)} className="p-2 hover:bg-white/10 hover:text-red-500 rounded-full transition-colors" title="Broadcast">
+                <Send className="w-5 h-5" />
+              </button>
+            )}
             <button onClick={handleLogout} className="p-2 hover:bg-white/10 hover:text-red-500 rounded-full transition-colors" title="Logout"><LogOut className="w-5 h-5" /></button>
           </div>
         </div>
@@ -1209,7 +1302,10 @@ function App() {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex justify-between items-baseline">
-                  <h4 className={cn("font-medium text-sm truncate", activeChat?.phone === contact.phone ? "text-red-400" : "text-gray-300")}>{contact.username || contact.name}</h4>
+                  <h4 className={cn("font-medium text-sm truncate flex items-center gap-1", activeChat?.phone === contact.phone ? "text-red-400" : "text-gray-300")}>
+                    {contact.username || contact.name}
+                    {isAdmin(contact.phone) && <BadgeCheck className="w-3 h-3 text-red-500 fill-red-500/10" />}
+                  </h4>
                   {(!contact.is_online || (new Date().getTime() - new Date(contact.last_seen || 0).getTime() >= 60000)) && <span className="text-[10px] text-gray-600">Last seen {new Date(contact.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
                   {/* Visual Logic: Check if actually online (Heartbeat < 60s ago) */}
                   {contact.is_online && (new Date().getTime() - new Date(contact.last_seen || 0).getTime() < 60000) && <span className="text-[10px] text-green-500/70">Online</span>}
@@ -1261,7 +1357,10 @@ function App() {
 
                 <img src={currentChatUser?.avatar_url || currentChatUser?.avatar} className="w-9 h-9 rounded-full shadow-sm ring-1 ring-white/10" />
                 <div>
-                  <h4 className="font-bold text-gray-200 text-sm">{currentChatUser?.username || currentChatUser?.name}</h4>
+                  <h4 className="font-bold text-gray-200 text-sm flex items-center gap-1">
+                    {currentChatUser?.username || currentChatUser?.name}
+                    {isAdmin(currentChatUser?.phone) && <BadgeCheck className="w-4 h-4 text-red-500 fill-red-500/10" />}
+                  </h4>
                   {currentChatUser?.is_online && (new Date().getTime() - new Date(currentChatUser?.last_seen || 0).getTime() < 60000) ?
                     <span className="text-xs text-green-500 font-medium tracking-wider">ONLINE</span> :
                     <span className="text-xs text-gray-600">Last seen {new Date(currentChatUser?.last_seen || Date.now()).toLocaleTimeString()}</span>
