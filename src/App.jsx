@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { User, Phone as PhoneIcon, Video, MoreVertical, Send, Paperclip, Mic, Search, LogOut, ArrowLeft, X, Check, CheckCheck, Clock, Plus, Image as ImageIcon, Trash2, Eraser, BadgeCheck } from 'lucide-react';
+import { User, Phone as PhoneIcon, Video, MoreVertical, Send, Paperclip, Mic, Search, LogOut, ArrowLeft, X, Check, CheckCheck, Clock, Plus, Image as ImageIcon, Trash2, Eraser, BadgeCheck, CheckSquare, MessageCircle } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -25,13 +25,154 @@ const COUNTRIES = [
   { code: 'CA', dial: '+1', flag: '🇨🇦', len: 10 },
 ];
 
-const ADMIN_NUMBERS = ['123456789', '987654321'];
+// --- INFO CONTENTS (TERMS, PRIVACY, HELP) ---
+const INFO_CONTENTS = {
+  terms: {
+    title: "Terms of Service",
+    content: `
+      <p class="mb-4"><strong>Welcome to Zhatn!</strong> By using our app, you agree to these terms.</p>
+      <ul class="list-disc pl-5 space-y-2 mb-4">
+        <li><strong>Responsible Use:</strong> Do not use Zhatn for illegal activities, harassment, or spam.</li>
+        <li><strong>Account Security:</strong> You are responsible for keeping your PIN and account secure. We cannot recover lost PINs without your Username.</li>
+        <li><strong>Prototype Status:</strong> Zhatn is currently in V1.1 Beta. We are constantly improving security and features.</li>
+      </ul>
+      <p>Violation of these terms may result in account termination.</p>
+    `
+  },
+  privacy: {
+    title: "Privacy Policy",
+    content: `
+      <p class="mb-4"><strong>Zhatn! - Future of Privacy</strong></p>
+      <ul class="list-disc pl-5 space-y-2 mb-4">
+        <li><strong>Data Minimization:</strong> We only store your Phone Number, Username, and Avatar.</li>
+        <li><strong>Message Privacy:</strong> Messages are stored securely. We do not sell your personal data to third parties.</li>
+        <li><strong>Right to Erasure:</strong> You can delete your account and all associated data at any time from the Settings menu.</li>
+      </ul>
+      <p>Your privacy is our top priority.</p>
+    `
+  },
+  help: {
+    title: "How to Use Zhatn",
+    content: `
+      <p class="mb-4"><strong>Simple, Fast, Secure.</strong></p>
+      <div class="space-y-4">
+        <div>
+          <h4 class="font-bold text-red-400">1. Getting Started</h4>
+          <p>Select your <strong>Country Code</strong> and enter your mobile number. No password required, just a secure OTP.</p>
+        </div>
+        <div>
+          <h4 class="font-bold text-red-400">2. Chatting</h4>
+          <p>Tap the <strong>(+)</strong> button to start a chat. You can enter <strong>any 9-digit valid mobile number</strong> directly to message them instantly.</p>
+        </div>
+        <div>
+          <h4 class="font-bold text-red-400">3. Security</h4>
+          <p>Set a <strong>4-digit PIN</strong> to lock your app. If you forget it, you'll need your verified Username to reset it.</p>
+        </div>
+      </div>
+    `
+  }
+};
+
+// --- IMAGE COMPRESSION UTILITY ---
+const compressImage = (file, maxWidth = 800, quality = 0.7) => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target.result;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxWidth) {
+          height = (height * maxWidth) / width;
+          width = maxWidth;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // Compress
+        const dataUrl = canvas.toDataURL('image/webp', quality);
+        resolve(dataUrl);
+      };
+    };
+  });
+};
 const isAdmin = (phone) => phone && ADMIN_NUMBERS.some(adminNum => phone.includes(adminNum));
 
-/**
- * ZHATN V2 - Main Application
- */
+// BADGE RENDERER
+// BADGE RENDERER V2
+const renderBadge = (user) => {
+  if (!user) return null;
+
+  // 1. Determine Tick Color
+  let tick = user.tick_color;
+  // Fallback for hardcoded admins if DB is empty
+  if ((!tick || tick === 'none') && isAdmin(user.phone)) tick = 'red';
+
+  // 2. Determine Role Badge
+  let badge = user.role_badge;
+  if ((!badge || badge === 'none') && isAdmin(user.phone)) badge = 'admin';
+
+  return (
+    <div className="flex items-center gap-1">
+      {/* RENDER TICK */}
+      {tick === 'red' && <BadgeCheck className="w-3.5 h-3.5 text-red-500 fill-red-500/10" />}
+      {tick === 'blue' && <BadgeCheck className="w-3.5 h-3.5 text-blue-500 fill-blue-500/10" />}
+      {tick === 'yellow' && <BadgeCheck className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500/10" />}
+      {tick === 'gray' && <BadgeCheck className="w-3.5 h-3.5 text-gray-400 fill-gray-500/10" />}
+      {tick === 'purple' && <BadgeCheck className="w-3.5 h-3.5 text-purple-500 fill-purple-500/10" />}
+
+      {/* RENDER BADGE LOGO */}
+      {badge === 'admin' && (
+        <img src="/zhatn-badge.png" className="w-5 h-5 shadow-sm" alt="Admin" title="Zhatn Admin" />
+      )}
+      {badge === 'developer' && (
+        <img src="/zhatn-badge.png" className="w-5 h-5 shadow-sm" alt="Developer" title="Zhatn Developer" />
+      )}
+      {badge === 'contributor' && (
+        <div className="bg-purple-600/20 border border-purple-500/50 rounded-full w-4 h-4 flex items-center justify-center">
+          <img src="/logo.png" className="w-2.5 h-2.5" alt="Contributor" />
+        </div>
+      )}
+    </div>
+  );
+};
+
+// --- REUSABLE INFO MODAL ---
+const InfoModal = ({ title, content, onClose }) => (
+  <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 backdrop-blur-md animate-in fade-in p-6">
+    <div className="glass-card w-full max-w-md rounded-3xl p-8 border border-white/10 shadow-2xl relative max-h-[80vh] flex flex-col">
+      <button
+        onClick={onClose}
+        className="absolute top-4 right-4 p-2 text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-full transition-all"
+      >
+        <X className="w-5 h-5" />
+      </button>
+
+      <h3 className="text-2xl font-bold text-white mb-6 flex items-center gap-3">
+        <span className="w-2 h-8 bg-red-600 rounded-full inline-block"></span>
+        {title}
+      </h3>
+
+      <div className="text-gray-300 text-sm leading-relaxed overflow-y-auto pr-2 custom-scrollbar" dangerouslySetInnerHTML={{ __html: content }} />
+
+      <button onClick={onClose} className="btn-primary w-full py-3 rounded-xl font-bold mt-8">
+        Understood
+      </button>
+    </div>
+  </div>
+);
+
+// ZHATN V2 - Main Application
 function App() {
+  const [activeInfoModal, setActiveInfoModal] = useState(null); // 'terms', 'privacy', 'help' or null
+
   // Global State
   const [user, setUser] = useState(null); // Authenticated User
   const [view, setView] = useState('auth'); // 'auth' | 'app'
@@ -45,6 +186,7 @@ function App() {
   const [generatedOtp, setGeneratedOtp] = useState(null); // Dynamic OTP
   const [pin, setPin] = useState(['', '', '', '']); // Security PIN
   const [isResettingPin, setIsResettingPin] = useState(false);
+  const [verificationUsername, setVerificationUsername] = useState(''); // New: For PIN Reset Security
   const [profileName, setProfileName] = useState('');
 
   // Notification System
@@ -277,6 +419,47 @@ function App() {
     }
   };
 
+  // --- SECURE PIN RESET LOGIC ---
+  const handleVerifyUsername = async (e) => {
+    e.preventDefault();
+    if (!verificationUsername.trim()) {
+      showNotification("Required", "Please enter your username.", 'error');
+      return;
+    }
+
+    const fullPhone = `${country.dial}${phoneNumber}`;
+
+    // 1. Verify Name matches Phone
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('username')
+        .eq('phone', fullPhone)
+        .single();
+
+      if (error || !data) {
+        showNotification("Error", "User not found.", 'error');
+        return;
+      }
+
+      // Case-insensitive check
+      if (data.username.toLowerCase().trim() === verificationUsername.toLowerCase().trim()) {
+        // Success! Send OTP
+        const randomCode = Math.floor(1000 + Math.random() * 9000).toString();
+        setGeneratedOtp(randomCode);
+        setIsResettingPin(true);
+        setAuthStage('otp');
+        showNotification("Security Verified", `Reset code: ${randomCode}`, 'otp');
+        setVerificationUsername(''); // Clear security field
+      } else {
+        showNotification("Access Denied", "Username does not match our records.", 'error');
+      }
+    } catch (err) {
+      console.error("Verification Error:", err);
+      showNotification("Error", "Verification failed.", 'error');
+    }
+  };
+
   const checkUserExists = async () => {
     const fullPhone = `${country.dial}${phoneNumber}`;
     const { data } = await supabase.from('profiles').select('*').eq('phone', fullPhone).single();
@@ -297,36 +480,8 @@ function App() {
     }
   };
 
-  // -- Avatar Selection & Validation --
-  const handleAvatarSelect = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const img = new Image();
-      img.src = URL.createObjectURL(file);
-      img.onload = () => {
-        if (Math.abs(img.width - img.height) > 10) { // Allow slight 10px error
-          alert("Please upload a square (1:1) photo.");
-          e.target.value = null; // Clear input
-          setUserAvatar(null);
-        } else {
-          // COMPRESSION: Resize to 300x300 JPEG to save space (LocalStorage limit is ~5MB)
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d');
-          const maxSize = 300;
 
-          canvas.width = maxSize;
-          canvas.height = maxSize;
 
-          // Draw image tightly to canvas (resize)
-          ctx.drawImage(img, 0, 0, maxSize, maxSize);
-
-          // Compress to JPEG 0.7 quality
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
-          setUserAvatar(dataUrl);
-        }
-      };
-    }
-  };
 
   // --- AUTOMATED WELCOME MESSAGES ---
   const sendWelcomeMessages = async (receiverPhone) => {
@@ -537,13 +692,13 @@ function App() {
       if (uniqueIds.size > 0) {
         const { data: profiles } = await supabase
           .from('profiles')
-          .select('*')
+          .select('*, tick_color, role_badge')
           .in('phone', Array.from(uniqueIds));
 
         // PINNED CHATS: Robust Fetch using LIKE/OR logic (Contains check)
         const { data: admins } = await supabase
           .from('profiles')
-          .select('*')
+          .select('*, tick_color, role_badge')
           .or(`phone.ilike.%${ADMIN_NUMBERS[0]}%,phone.ilike.%${ADMIN_NUMBERS[1]}%`);
 
         let finalContacts = profiles || [];
@@ -562,7 +717,7 @@ function App() {
       // Even if no history, show Admins
       const { data: admins } = await supabase
         .from('profiles')
-        .select('*')
+        .select('*, tick_color, role_badge')
         .or(`phone.ilike.%${ADMIN_NUMBERS[0]}%,phone.ilike.%${ADMIN_NUMBERS[1]}%`);
 
       if (admins) {
@@ -581,7 +736,10 @@ function App() {
   const handleBroadcast = async (e) => {
     e.preventDefault();
     if (!broadcastMessage.trim()) return;
-    if (!isAdmin(user.phone)) {
+
+    // Check Permission (Hardcoded OR badge_type)
+    const hasPermission = isAdmin(user.phone) || user.badge_type === 'admin';
+    if (!hasPermission) {
       alert("Unauthorized");
       return;
     }
@@ -639,7 +797,7 @@ function App() {
     // Search by Phone (or Username)
     const { data } = await supabase
       .from('profiles')
-      .select('*')
+      .select('*, tick_color, role_badge')
       .neq('phone', user.phone) // Don't find self
       .ilike('phone', `%${term}%`)
       .limit(5);
@@ -796,18 +954,45 @@ function App() {
   };
 
   // -- Image Handling (Base64 for prototype) --
-  const handleFileUpload = (e) => {
+  const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    if (file.size > 2000000) { alert("File too large (Max 2MB for demo)"); return; }
-
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      dispatchMessage('image', reader.result); // Send Base64 string
+    // Helper: Send Message
+    const sendImg = (content) => {
+      dispatchMessage('image', content);
     };
-    reader.readAsDataURL(file);
+
+    if (file.type.startsWith('image/')) {
+      // Auto-Compress to 1024px (Chat size), 70% Quality
+      const compressed = await compressImage(file, 1024, 0.7);
+      sendImg(compressed);
+    } else {
+      // Video/File (No compression for now)
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        dispatchMessage(file.type.startsWith('video/') ? 'video' : 'file', reader.result);
+      };
+      reader.readAsDataURL(file);
+    }
   };
+
+  // -- Avatar Selection & Validation --
+  const handleAvatarSelect = async (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        showNotification("Error", "Image too large (Max 5MB)", 'error');
+        return;
+      }
+
+      // Auto-Compress to 300px (Avatar size), 70% Quality
+      const compressed = await compressImage(file, 300, 0.7);
+      setUserAvatar(compressed);
+      // Note: Data URL string is set. Ensure handleRegistration handles string or converts to blob.
+    }
+  };
+
 
   // -- Voice Handling --
   const toggleRecording = async () => {
@@ -958,7 +1143,11 @@ function App() {
                   Agree & Continue
                 </button>
                 <p className="text-[10px] text-gray-600 mt-4">
-                  By tapping "Agree & Continue", you accept the <a href="#" className="text-red-400 hover:underline">Terms of Service</a> and <a href="#" className="text-red-400 hover:underline">Privacy Policy</a>.
+                  By tapping "Agree & Continue", you accept the <button onClick={() => setActiveInfoModal('terms')} className="text-red-400 hover:underline hover:text-red-300 transition-colors">Terms of Service</button> and <button onClick={() => setActiveInfoModal('privacy')} className="text-red-400 hover:underline hover:text-red-300 transition-colors">Privacy Policy</button>.
+                  <br />
+                  <button onClick={() => setActiveInfoModal('help')} className="text-gray-500 mt-2 hover:text-gray-300 flex items-center justify-center gap-1 mx-auto w-fit border-b border-transparent hover:border-gray-500 transition-all">
+                    How does it work?
+                  </button>
                 </p>
               </div>
             </div>
@@ -992,6 +1181,52 @@ function App() {
                 <p className="text-[10px] text-gray-500 ml-2">Don't enter leading "0". Required: {country.len} digits.</p>
               </div>
               <button type="submit" className="btn-liquid w-full py-4 rounded-xl text-lg shadow-lg shadow-red-900/40">Send Code</button>
+            </form>
+          )}
+
+          {authStage === 'verification_username' && (
+            <form onSubmit={handleVerifyUsername} className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="text-center space-y-2">
+                <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/20">
+                  <User className="w-8 h-8 text-red-500" />
+                </div>
+                <h2 className="text-2xl font-bold text-white">Security Check</h2>
+                <p className="text-gray-400 text-sm">
+                  To reset your PIN, please enter your <b>Username</b> (e.g. {activeChat?.username || "Dark Vibe"}).
+                </p>
+              </div>
+
+              <input
+                type="text"
+                className="input-pill text-center text-lg tracking-wide w-full"
+                placeholder="Ex: Dark Vibe"
+                value={verificationUsername}
+                onChange={(e) => setVerificationUsername(e.target.value)}
+                autoFocus
+              />
+
+              <button type="submit" className="btn-primary w-full py-3 rounded-xl font-bold">
+                Verify Identity
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setAuthStage('pin_entry')}
+                className="w-full text-sm text-gray-500 hover:text-white transition-colors"
+                style={{ marginBottom: '1rem' }}
+              >
+                Cancel
+              </button>
+
+              <div className="border-t border-white/10 pt-4 mt-2">
+                <button
+                  type="button"
+                  onClick={() => window.open(`https://wa.me/${ADMIN_NUMBERS[0]}?text=I%20have%20trouble%20resetting%20my%20PIN.%20My%20phone%20number%20is%20${phoneNumber}`, '_blank')}
+                  className="flex items-center justify-center gap-2 w-full p-3 rounded-xl bg-green-500/10 hover:bg-green-500/20 text-green-400 transition-all border border-green-500/20"
+                >
+                  <MessageCircle className="w-4 h-4" /> Contact Support via WhatsApp
+                </button>
+              </div>
             </form>
           )}
 
@@ -1097,11 +1332,8 @@ function App() {
                 <button
                   type="button"
                   onClick={() => {
-                    const randomCode = Math.floor(1000 + Math.random() * 9000).toString();
-                    setGeneratedOtp(randomCode);
-                    setIsResettingPin(true);
-                    setAuthStage('otp');
-                    showNotification("Reset PIN", `Verification code: ${randomCode}`, 'otp');
+                    setVerificationUsername('');
+                    setAuthStage('verification_username');
                   }}
                   className="text-xs text-gray-400 hover:text-white mt-4 underline decoration-white/20 hover:decoration-white transition-all w-full text-center block"
                 >
@@ -1227,13 +1459,14 @@ function App() {
                 <div className="w-3 h-3 text-white">✎</div>
               </div>
             </div>
+
             <h3 className="font-semibold text-white tracking-wide group-hover:text-red-400 transition-colors flex items-center gap-1">
               {user.username}
-              {isAdmin(user.phone) && <BadgeCheck className="w-4 h-4 text-red-500 fill-red-500/10" />}
+              {renderBadge(user)}
             </h3>
           </div>
           <div className="flex items-center gap-3">
-            {isAdmin(user.phone) && (
+            {(isAdmin(user.phone) || user.badge_type === 'admin') && (
               <button onClick={() => setIsBroadcasting(true)} className="p-2 hover:bg-white/10 hover:text-red-500 rounded-full transition-colors" title="Broadcast">
                 <Send className="w-5 h-5" />
               </button>
@@ -1311,7 +1544,7 @@ function App() {
                 <div className="flex justify-between items-baseline">
                   <h4 className={cn("font-medium text-sm truncate flex items-center gap-1", activeChat?.phone === contact.phone ? "text-red-400" : "text-gray-300")}>
                     {contact.username || contact.name}
-                    {isAdmin(contact.phone) && <BadgeCheck className="w-3 h-3 text-red-500 fill-red-500/10" />}
+                    {renderBadge(contact)}
                   </h4>
                   {(!contact.is_online || (new Date().getTime() - new Date(contact.last_seen || 0).getTime() >= 60000)) && <span className="text-[10px] text-gray-600">Last seen {new Date(contact.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
                   {/* Visual Logic: Check if actually online (Heartbeat < 60s ago) */}
@@ -1366,7 +1599,7 @@ function App() {
                 <div>
                   <h4 className="font-bold text-gray-200 text-sm flex items-center gap-1">
                     {currentChatUser?.username || currentChatUser?.name}
-                    {isAdmin(currentChatUser?.phone) && <BadgeCheck className="w-4 h-4 text-red-500 fill-red-500/10" />}
+                    {renderBadge(currentChatUser)}
                   </h4>
                   {currentChatUser?.is_online && (new Date().getTime() - new Date(currentChatUser?.last_seen || 0).getTime() < 60000) ?
                     <span className="text-xs text-green-500 font-medium tracking-wider">ONLINE</span> :
@@ -1413,18 +1646,39 @@ function App() {
                 return (
                   <div key={i} className={cn("flex w-full animate-liquid-in", isMe ? "justify-end" : "justify-start")}>
                     <div className={cn(
-                      "max-w-[60%] px-5 py-3 relative text-sm leading-relaxed shadow-lg flex flex-col gap-2",
-                      isMe ? "bubble-me font-medium" : "bubble-them bg-[#222] text-gray-300"
+                      "max-w-[75%] px-5 py-4 relative text-sm leading-relaxed shadow-lg flex flex-col gap-1 break-words",
+                      isMe
+                        ? "bubble-me font-medium"
+                        : (isAdmin(msg.sender_id)
+                          ? "bg-red-900/40 border border-red-500/50 text-white rounded-tr-2xl rounded-bl-2xl rounded-br-2xl"
+                          : "bubble-them bg-[#222] text-gray-300")
                     )}>
-                      {msg.type === 'text' && msg.content}
-                      {msg.type === 'image' && <img src={msg.content} className="max-w-[200px] rounded-lg border border-white/10" alt="Sent image" />}
-                      {msg.type === 'audio' && <audio controls src={msg.content} className="max-w-[200px] h-8 mt-1" />}
+                      {msg.type === 'text' && (
+                        <p className="whitespace-pre-wrap">
+                          {msg.content.split(/(https?:\/\/[^\s]+)/g).map((part, index) =>
+                            part.match(/https?:\/\/[^\s]+/) ? (
+                              <a key={index} href={part} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline break-all relative z-10">{part}</a>
+                            ) : part
+                          )}
+                        </p>
+                      )}
 
-                      <div className={cn("text-[9px] mt-1 flex justify-end gap-1 opacity-70", isMe ? "text-red-200" : "text-gray-500")}>
+                      {msg.type === 'image' && <img src={msg.content} className="max-w-[200px] rounded-lg border border-white/10" alt="Sent image" />}
+                      {msg.type === 'image' && <img src={msg.content} className="max-w-[200px] rounded-lg border border-white/10" alt="Sent image" />}
+                      {msg.type === 'audio' && (
+                        <audio
+                          controls
+                          controlsList="nodownload"
+                          onContextMenu={(e) => e.preventDefault()}
+                          src={msg.content}
+                          className="max-w-[200px] h-8 mt-1"
+                        />
+                      )}
+
+                      <div className={cn("text-[9px] mt-2 flex justify-end gap-1 opacity-70", isMe ? "text-red-200" : "text-gray-400")}>
                         {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         {isMe && (
                           <>
-                            {/* Tick Logic: Green (Read) > Double (Online/Delivered) > Single (Offline/Sent) */}
                             {msg.read_status ? (
                               <CheckCheck className="w-3 h-3 text-green-400" />
                             ) : (currentChatUser?.is_online && (new Date().getTime() - new Date(currentChatUser?.last_seen || 0).getTime() < 60000)) ? (
@@ -1609,7 +1863,17 @@ function App() {
           </div>
         )
       }
-    </div>
+      {/* INFO MODAL */}
+      {
+        activeInfoModal && (
+          <InfoModal
+            title={INFO_CONTENTS[activeInfoModal].title}
+            content={INFO_CONTENTS[activeInfoModal].content}
+            onClose={() => setActiveInfoModal(null)}
+          />
+        )
+      }
+    </div >
   );
 }
 
