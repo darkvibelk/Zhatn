@@ -490,6 +490,7 @@ function App() {
         // Success! Send OTP
         const randomCode = Math.floor(1000 + Math.random() * 9000).toString();
         setGeneratedOtp(randomCode);
+        setOtp(['', '', '', '']); // Clear input to prevent auto-fill
 
         // Use LocalStorage for robustness against reloads during flow
         setIsResettingPin(true);
@@ -1281,15 +1282,15 @@ function App() {
 
         {/* MAIN AUTH CARD */}
         <div className="glass-card w-full max-w-md w-full max-h-[90vh] flex flex-col p-6 sm:p-10 rounded-[2.5rem] shadow-2xl animate-in zoom-in-95 fade-in duration-500 border border-white/5 relative z-10 overflow-y-auto custom-scrollbar">
-          <div className="text-center mb-10">
-            <img src="/zhatn-logo.png" className="w-24 h-24 mx-auto mb-4 rounded-3xl shadow-xl hover:scale-105 transition-transform duration-500" alt="Zhatn Logo" />
-            <h1 className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-red-500 to-red-700 mb-2 drop-shadow-sm">Zhatn!</h1>
+          <div className="text-center mb-6">
+            <img src="/zhatn-logo.png" className="w-24 h-24 mx-auto mb-2 rounded-3xl shadow-xl hover:scale-110 transition-transform duration-500 animate-in zoom-in duration-1000" alt="Zhatn Logo" />
+            <h1 className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-red-500 to-red-700 mb-2 drop-shadow-sm animate-in slide-in-from-bottom-4 duration-700 delay-200">Zhatn!</h1>
           </div>
 
           {authStage === 'welcome' && (
-            <div className="text-center space-y-6 animate-in fade-in duration-500">
+            <div className="text-center space-y-5 animate-in fade-in duration-700 delay-300">
 
-              <div className="space-y-3">
+              <div className="space-y-2">
                 <h2 className="text-2xl font-bold text-white tracking-wide">Welcome to Zhatn!</h2>
                 <p className="text-sm text-gray-400 leading-relaxed">
                   The future of secure, private messaging.
@@ -1587,6 +1588,9 @@ function App() {
             <p className="text-[10px] text-white/40 font-light tracking-wider">v1.2</p>
             <p className="text-[10px] text-white/40 font-light">
               Deployed by <a href="https://darkvibelk.pages.dev/" target="_blank" rel="noopener noreferrer" className="font-medium text-white/60 hover:text-red-400 transition-colors">Dark Vibe</a>
+            </p>
+            <p className="text-[10px] text-white/40 font-light">
+              Developed by <a href="https://www.armohamedzuhail.com/" target="_blank" rel="noopener noreferrer" className="font-medium text-white/60 hover:text-red-400 transition-colors">(AR Mohamed Zuhail)</a>
             </p>
             <a href="https://darkvibelk.pages.dev/contact?service=zhatn" target="_blank" rel="noopener noreferrer" className="text-[10px] text-white/30 hover:text-red-400 transition-colors block mt-2">
               Send Suggestions & Feedback
