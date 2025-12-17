@@ -174,6 +174,8 @@ const InfoModal = ({ title, content, onClose }) => (
   </div>
 );
 
+
+
 // ZHATN V2 - Main Application
 function App() {
   const [activeInfoModal, setActiveInfoModal] = useState(null); // 'terms', 'privacy', 'help' or null
@@ -767,74 +769,106 @@ function App() {
 
   // 1. Fetch people I've actually talked to
   // 1. Fetch people I've actually talked to (Enhanced with Unread & Sort)
+  // 1. Fetch people I've actually talked to (Optimized via RPC)
   const fetchMyChats = async (currentUser) => {
     const myPhone = currentUser?.phone || user?.phone;
     if (!myPhone) return;
 
-    // A. Get all messages involving me (Optimized: Select specific fields)
-    const { data: msgs } = await supabase
-      .from('messages')
-      .select('sender_id, receiver_id, created_at, read_status')
-      .or(`sender_id.eq.${myPhone},receiver_id.eq.${myPhone}`)
-      .order('created_at', { ascending: false });
+    let finalContacts = [];
+    let usedRpc = false;
 
-    if (msgs) {
-      // B. Process Metadata (Unread Count & Last Message Time)
-      const contactMeta = {}; // { phone: { unread: 0, lastAt: '...' } }
-      const uniqueIds = new Set();
+    try {
+      // A. Try Optimized RPC
+      const { data: convos, error } = await supabase.rpc('get_my_conversations', { p_phone: myPhone });
 
-      msgs.forEach(m => {
-        const otherId = m.sender_id === myPhone ? m.receiver_id : m.sender_id;
-        uniqueIds.add(otherId);
-
-        if (!contactMeta[otherId]) {
-          contactMeta[otherId] = { unread: 0, lastAt: m.created_at };
+      if (!error && convos) {
+        finalContacts = convos;
+        usedRpc = true;
+      } else {
+        console.warn("RPC Error:", error);
+        // Detect Missing Function (The root cause of slowness)
+        if (error?.code === '42883' || error?.message?.includes('function') || error?.code === 'PGRST202') {
+          showNotification("⚠️ SETUP REQUIRED", "Please run the SQL Script in Supabase to fix speed!", "error");
         }
+      }
+    } catch (err) {
+      console.warn("RPC Exception:", err);
+    }
 
-        // Count Unread Incoming: (Sender is THEM, Receiver is ME, Status is Unread)
-        if (m.sender_id === otherId && m.receiver_id === myPhone && !m.read_status) {
-          contactMeta[otherId].unread++;
+    // B. Fallback: Legacy Logic if RPC failed
+    if (!usedRpc) {
+      try {
+        console.log("Using Legacy Fetch Fallback (Aggressive Mode)");
+        const { data: msgs } = await supabase
+          .from('messages')
+          .select('sender_id, receiver_id, created_at, read_status')
+          .or(`sender_id.eq.${myPhone},receiver_id.eq.${myPhone}`)
+          .order('created_at', { ascending: false })
+          .limit(50); // Aggressive optimization: Only check last 50 messages
+
+        if (msgs) {
+          const uniqueIds = new Set();
+          const contactMeta = {};
+
+          msgs.forEach(m => {
+            const otherId = m.sender_id === myPhone ? m.receiver_id : m.sender_id;
+            uniqueIds.add(otherId);
+            if (!contactMeta[otherId]) contactMeta[otherId] = { unread: 0, lastAt: m.created_at };
+            if (m.sender_id === otherId && m.receiver_id === myPhone && !m.read_status) {
+              contactMeta[otherId].unread++;
+            }
+          });
+
+          if (uniqueIds.size > 0) {
+            const { data: profiles } = await supabase
+              .from('profiles')
+              .select('*, tick_color, role_badge')
+              .in('phone', Array.from(uniqueIds));
+
+            if (profiles) {
+              finalContacts = profiles.map(p => ({
+                ...p,
+                unread_count: contactMeta[p.phone]?.unread || 0,
+                last_message_at: contactMeta[p.phone]?.lastAt || 0
+              }));
+            }
+          }
         }
-      });
+      } catch (legacyErr) {
+        console.error("Legacy Fetch Error:", legacyErr);
+      }
+    }
 
-      // C. Base Contacts (Admin fallback if empty) 
-      // We always start with Pinned Admins so they are available (but we will sort them too)
+    // C. Always Ensure Pinned Admins are visible (Zhatn & Dark Vibe)
+    try {
       const { data: admins } = await supabase
         .from('profiles')
         .select('*, tick_color, role_badge')
         .or(`phone.ilike.%${ADMIN_NUMBERS[0]}%,phone.ilike.%${ADMIN_NUMBERS[1]}%`);
 
-      const adminIds = admins ? admins.map(a => a.phone) : [];
-
-      // Add Admins to uniqueIds to ensure they are fetched/merged
-      adminIds.forEach(id => uniqueIds.add(id));
-
-      if (uniqueIds.size > 0) {
-        // D. Fetch All Relevant Profiles
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('*, tick_color, role_badge')
-          .in('phone', Array.from(uniqueIds));
-
-        // E. Merge Data & Sort
-        let finalContacts = (profiles || []).map(p => ({
-          ...p,
-          unread_count: contactMeta[p.phone]?.unread || 0,
-          last_message_at: contactMeta[p.phone]?.lastAt || (adminIds.includes(p.phone) ? '2024-01-01' : 0) // Default old date for pinned if no msg
-        }));
-
-        // Sort: Latest Message First
-        // Note: This puts recently active chats ABOVE pinned admins if admins are inactive. 
-        // This addresses "make the chat to top if theres any message arriuve".
-        finalContacts.sort((a, b) => new Date(b.last_message_at) - new Date(a.last_message_at));
-
-        // Optional: Force Pinned Admins to top ONLY if they have NO history? 
-        // For now, pure time sort is what user asked for ("message arrive -> top").
-
-        setMyChats(finalContacts);
-        setContacts(finalContacts); // Initialize search list
+      if (admins) {
+        admins.forEach(admin => {
+          if (!finalContacts.some(c => c.phone === admin.phone)) {
+            // Add pinned admin if not already in list
+            finalContacts.push({
+              ...admin,
+              unread_count: 0,
+              last_message_at: '2024-01-01', // Default old date
+              last_message_content: "Official Support", // Fallback text
+              last_message_type: 'text'
+            });
+          }
+        });
       }
+    } catch (adminErr) {
+      console.error("Admin Fetch Error:", adminErr);
     }
+
+    // D. Sort: Latest Message First
+    finalContacts.sort((a, b) => new Date(b.last_message_at) - new Date(a.last_message_at));
+
+    setMyChats(finalContacts);
+    setContacts(finalContacts);
   };
 
 
@@ -965,13 +999,17 @@ function App() {
 
     // Load History & Mark as Read
     const fetchMsgs = async () => {
+      // PAGINATION OPTIMIZATION: Get latest 50 messages
       const { data } = await supabase
         .from('messages')
         .select('*')
         .or(`and(sender_id.eq.${myId},receiver_id.eq.${theirId}),and(sender_id.eq.${theirId},receiver_id.eq.${myId})`)
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: false }) // Get NEWEST first
+        .limit(50); // LIMIT
+
       if (data) {
-        setMessages(data);
+        // Reverse to show oldest -> newest
+        setMessages(data.reverse());
 
         // Mark incoming unread messages as read
         const unreadIds = data.filter(m => m.receiver_id === myId && !m.read_status).map(m => m.id);
@@ -1208,10 +1246,10 @@ function App() {
   // --- RENDER ---
   if (view === 'auth') {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-y-auto overflow-x-hidden">
+      <div className="h-[100dvh] w-full flex flex-col items-center justify-center bg-black text-white relative overflow-hidden supports-[height:100cqh]:h-[100cqh] p-4">
         {/* NOTIFICATION BANNER */}
         {notification && (
-          <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-sm animate-in slide-in-from-top-2">
+          <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-sm animate-in slide-in-from-top-4 duration-300">
             <div className={cn(
               "glass-card p-4 rounded-xl border flex items-center gap-3 shadow-2xl backdrop-blur-xl",
               notification.type === 'error' ? "border-red-500/50 bg-red-950/80" : "border-white/10 bg-[#111]/90"
@@ -1229,11 +1267,13 @@ function App() {
             </div>
           </div>
         )}
-        {/* Animated Background Blobs */}
-        <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-red-900/20 rounded-full blur-[100px] animate-pulse"></div>
-        <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-red-600/10 rounded-full blur-[100px] animate-pulse delay-700"></div>
 
-        <div className="glass-card w-full max-w-md p-8 rounded-3xl animate-liquid-in relative z-10">
+        {/* Animated Background Blobs - Slower & Smoother */}
+        <div className="absolute top-[-20%] left-[-20%] w-[500px] h-[500px] bg-red-900/30 rounded-full blur-[120px] animate-pulse duration-[4000ms] pointer-events-none"></div>
+        <div className="absolute bottom-[-20%] right-[-20%] w-[500px] h-[500px] bg-red-600/10 rounded-full blur-[120px] animate-pulse delay-1000 duration-[5000ms] pointer-events-none"></div>
+
+        {/* MAIN AUTH CARD */}
+        <div className="glass-card w-full max-w-md w-full max-h-[90vh] flex flex-col p-6 sm:p-10 rounded-[2.5rem] shadow-2xl animate-in zoom-in-95 fade-in duration-500 border border-white/5 relative z-10 overflow-y-auto custom-scrollbar">
           <div className="text-center mb-10">
             <img src="/zhatn-logo.png" className="w-24 h-24 mx-auto mb-4 rounded-3xl shadow-xl hover:scale-105 transition-transform duration-500" alt="Zhatn Logo" />
             <h1 className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-red-500 to-red-700 mb-2 drop-shadow-sm">Zhatn!</h1>
