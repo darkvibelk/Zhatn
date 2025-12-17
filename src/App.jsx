@@ -540,16 +540,19 @@ function App() {
           .select('*')
           .in('phone', Array.from(uniqueIds));
 
-        // PINNED CHATS: Ensure Admins are always at the top
-        const admins = await supabase.from('profiles').select('*').in('phone', ADMIN_NUMBERS);
+        // PINNED CHATS: Robust Fetch using LIKE/OR logic
+        const { data: admins } = await supabase
+          .from('profiles')
+          .select('*')
+          .or(`phone.ilike.%${ADMIN_NUMBERS[0]},phone.ilike.%${ADMIN_NUMBERS[1]}`);
 
-        let finalContacts = profiles;
+        let finalContacts = profiles || [];
 
-        if (admins.data) {
-          // Filter out admins from the 'history' list so we don't duplicate
-          finalContacts = profiles.filter(p => !ADMIN_NUMBERS.includes(p.phone));
+        if (admins) {
+          // Filter out admins from history to avoid duplicates (using loose check)
+          finalContacts = finalContacts.filter(p => !admins.some(a => a.phone === p.phone));
           // Prepend admins
-          finalContacts = [...admins.data, ...finalContacts];
+          finalContacts = [...admins, ...finalContacts];
         }
 
         setMyChats(finalContacts);
@@ -557,7 +560,11 @@ function App() {
       }
     } else {
       // Even if no history, show Admins
-      const { data: admins } = await supabase.from('profiles').select('*').in('phone', ADMIN_NUMBERS);
+      const { data: admins } = await supabase
+        .from('profiles')
+        .select('*')
+        .or(`phone.ilike.%${ADMIN_NUMBERS[0]},phone.ilike.%${ADMIN_NUMBERS[1]}`);
+
       if (admins) {
         setMyChats(admins);
         setContacts(admins);
