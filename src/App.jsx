@@ -25,6 +25,8 @@ const COUNTRIES = [
   { code: 'CA', dial: '+1', flag: '🇨🇦', len: 10 },
 ];
 
+const ADMIN_NUMBERS = ['123456789', '987654321'];
+
 // --- INFO CONTENTS (TERMS, PRIVACY, HELP) ---
 const INFO_CONTENTS = {
   terms: {
