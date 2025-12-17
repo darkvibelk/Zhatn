@@ -441,6 +441,21 @@ function App() {
     fetchMyChats(userWithSession);
   };
 
+  // --- ONLINE STATUS UPDATER ---
+  const updateOnlineStatus = async (phone, isOnline) => {
+    // We only update if we have a valid phone
+    if (!phone) return;
+
+    try {
+      await supabase.from('profiles').update({
+        is_online: isOnline,
+        last_seen: new Date().toISOString()
+      }).eq('phone', phone);
+    } catch (err) {
+      console.error("Status Update Failed:", err);
+    }
+  };
+
   const handleUpdateProfile = async (e) => {
     e.preventDefault();
     if (!editName.trim()) {
@@ -1121,11 +1136,12 @@ function App() {
             </div>
             <h3 className="font-semibold text-white tracking-wide group-hover:text-red-400 transition-colors">{user.username}</h3>
           </div>
-          <h3 className="font-semibold text-white tracking-wide">{user.username}</h3>
+          <div className="flex items-center gap-3">
+            <h3 className="font-semibold text-white tracking-wide">{user.username}</h3>
+            <button onClick={handleLogout} className="p-2 hover:bg-white/10 hover:text-red-500 rounded-full transition-colors" title="Logout"><LogOut className="w-5 h-5" /></button>
+          </div>
         </div>
-        <div className="flex gap-2 text-gray-400">
-          <button onClick={handleLogout} className="p-2 hover:bg-white/10 hover:text-red-500 rounded-full transition-colors" title="Logout"><LogOut className="w-5 h-5" /></button>
-        </div>
+
 
 
         {/* Search */}
@@ -1188,12 +1204,13 @@ function App() {
                   onError={(e) => { e.target.onerror = null; e.target.src = 'https://cdn-icons-png.flaticon.com/512/3233/3233508.png'; }}
                   className="w-12 h-12 rounded-full bg-gray-800 object-cover ring-2 ring-black"
                 />
-                {contact.is_online && <div className="absolute -inset-[2px] rounded-full status-ring z-[-1] opacity-70 animate-pulse"></div>}
+                {/* Ring Logic: Check if actually online (Heartbeat < 60s ago) */}
+                {contact.is_online && (new Date().getTime() - new Date(contact.last_seen || 0).getTime() < 60000) && <div className="absolute -inset-[2px] rounded-full status-ring z-[-1] opacity-70 animate-pulse"></div>}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex justify-between items-baseline">
                   <h4 className={cn("font-medium text-sm truncate", activeChat?.phone === contact.phone ? "text-red-400" : "text-gray-300")}>{contact.username || contact.name}</h4>
-                  {contact.last_seen && !contact.is_online && <span className="text-[10px] text-gray-600">Last seen {new Date(contact.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
+                  {(!contact.is_online || (new Date().getTime() - new Date(contact.last_seen || 0).getTime() >= 60000)) && <span className="text-[10px] text-gray-600">Last seen {new Date(contact.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
                   {/* Visual Logic: Check if actually online (Heartbeat < 60s ago) */}
                   {contact.is_online && (new Date().getTime() - new Date(contact.last_seen || 0).getTime() < 60000) && <span className="text-[10px] text-green-500/70">Online</span>}
                 </div>
@@ -1245,7 +1262,7 @@ function App() {
                 <img src={currentChatUser?.avatar_url || currentChatUser?.avatar} className="w-9 h-9 rounded-full shadow-sm ring-1 ring-white/10" />
                 <div>
                   <h4 className="font-bold text-gray-200 text-sm">{currentChatUser?.username || currentChatUser?.name}</h4>
-                  {currentChatUser?.is_online ?
+                  {currentChatUser?.is_online && (new Date().getTime() - new Date(currentChatUser?.last_seen || 0).getTime() < 60000) ?
                     <span className="text-xs text-green-500 font-medium tracking-wider">ONLINE</span> :
                     <span className="text-xs text-gray-600">Last seen {new Date(currentChatUser?.last_seen || Date.now()).toLocaleTimeString()}</span>
                   }
@@ -1304,7 +1321,7 @@ function App() {
                             {/* Tick Logic: Green (Read) > Double (Online/Delivered) > Single (Offline/Sent) */}
                             {msg.read_status ? (
                               <CheckCheck className="w-3 h-3 text-green-400" />
-                            ) : currentChatUser?.is_online ? (
+                            ) : (currentChatUser?.is_online && (new Date().getTime() - new Date(currentChatUser?.last_seen || 0).getTime() < 60000)) ? (
                               <CheckCheck className="w-3 h-3 text-white/50" />
                             ) : (
                               <Check className="w-3 h-3 text-white/50" />
