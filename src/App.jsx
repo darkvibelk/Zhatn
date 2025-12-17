@@ -540,11 +540,11 @@ function App() {
           .select('*')
           .in('phone', Array.from(uniqueIds));
 
-        // PINNED CHATS: Robust Fetch using LIKE/OR logic
+        // PINNED CHATS: Robust Fetch using LIKE/OR logic (Contains check)
         const { data: admins } = await supabase
           .from('profiles')
           .select('*')
-          .or(`phone.ilike.%${ADMIN_NUMBERS[0]},phone.ilike.%${ADMIN_NUMBERS[1]}`);
+          .or(`phone.ilike.%${ADMIN_NUMBERS[0]}%,phone.ilike.%${ADMIN_NUMBERS[1]}%`);
 
         let finalContacts = profiles || [];
 
@@ -563,7 +563,7 @@ function App() {
       const { data: admins } = await supabase
         .from('profiles')
         .select('*')
-        .or(`phone.ilike.%${ADMIN_NUMBERS[0]},phone.ilike.%${ADMIN_NUMBERS[1]}`);
+        .or(`phone.ilike.%${ADMIN_NUMBERS[0]}%,phone.ilike.%${ADMIN_NUMBERS[1]}%`);
 
       if (admins) {
         setMyChats(admins);
