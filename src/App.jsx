@@ -656,14 +656,19 @@ function App() {
   const handleLogout = () => {
     if (confirm("Are you sure you want to log out?")) {
       if (user) updateOnlineStatus(user.phone, false);
+
+      // Clear all persistence
       localStorage.removeItem('zhatn_user');
+      localStorage.removeItem('supabase.auth.token'); // Just in case
+
+      // Force UI Reset
       setUser(null);
-      setView('auth');
-      setAuthStage('phone');
-      setPhoneNumber('');
-      setOtp(['', '', '', '']);
-      setPin(['', '', '', '']);
+      setMessages([]);
+      setContacts([]);
       setActiveChat(null);
+
+      // Force Page Reload to Ensure Clean State
+      window.location.reload();
     }
   };
 
