@@ -42,35 +42,38 @@ const INFO_CONTENTS = {
     `
   },
   privacy: {
-    title: "Privacy Policy",
+    title: 'Privacy Policy',
     content: `
-      <p class="mb-4"><strong>Zhatn! - Future of Privacy</strong></p>
-      <ul class="list-disc pl-5 space-y-2 mb-4">
-        <li><strong>Data Minimization:</strong> We only store your Phone Number, Username, and Avatar.</li>
-        <li><strong>Message Privacy:</strong> Messages are stored securely. We do not sell your personal data to third parties.</li>
-        <li><strong>Right to Erasure:</strong> You can delete your account and all associated data at any time from the Settings menu.</li>
-      </ul>
-      <p>Your privacy is our top priority.</p>
+    <h3 class="text-lg font-bold text-white mb-2">Your Privacy Matters</h3>
+    <p class="mb-4">At Zhatn (v1.2), we prioritize your data privacy above all else.</p>
+    <ul class="list-disc pl-5 space-y-2 mb-4 text-left">
+      <li><strong>End-to-End Encryption:</strong> Coming soon. Currently, data is secured via restrictive database policies (RLS).</li>
+      <li><strong>Data Collection:</strong> We minimal data: Phone Number (for ID) and Username. Messages are stored securely.</li>
+      <li><strong>No Ad Tracking:</strong> We do not sell your data to advertisers.</li>
+    </ul>
+    <p>By continuing, you trust Dark Vibe with the current beta security measures.</p>
     `
   },
   help: {
-    title: "How to Use Zhatn",
+    title: 'How does it work?',
     content: `
-      <p class="mb-4"><strong>Simple, Fast, Secure.</strong></p>
-      <div class="space-y-4">
-        <div>
-          <h4 class="font-bold text-red-400">1. Getting Started</h4>
-          <p>Select your <strong>Country Code</strong> and enter your mobile number. No password required, just a secure OTP.</p>
-        </div>
-        <div>
-          <h4 class="font-bold text-red-400">2. Chatting</h4>
-          <p>Tap the <strong>(+)</strong> button to start a chat. You can enter <strong>any 9-digit valid mobile number</strong> directly to message them instantly.</p>
-        </div>
-        <div>
-          <h4 class="font-bold text-red-400">3. Security</h4>
-          <p>Set a <strong>4-digit PIN</strong> to lock your app. If you forget it, you'll need your verified Username to reset it.</p>
-        </div>
+    <div class="space-y-4 text-left">
+      <div>
+        <h4 class="font-bold text-red-500">1. Verification</h4>
+        <p>We use your phone number to verify you. No email required.</p>
       </div>
+      <div>
+        <h4 class="font-bold text-red-500">2. Realtime Chat</h4>
+        <p>Messages, photos, and voice notes are delivered instantly via our realtime engine.</p>
+      </div>
+      <div>
+        <h4 class="font-bold text-red-500">3. Security</h4>
+        <p>Set a <strong>4-digit PIN</strong> to lock your app. If you forget it, you'll need your verified Username to reset it.</p>
+      </div>
+      <div class="pt-4 border-t border-white/10 text-center">
+         <p class="text-xs text-gray-500">Zhatn v1.2 - Built by Dark Vibe</p>
+      </div>
+    </div>
     `
   }
 };
@@ -148,7 +151,7 @@ const renderBadge = (user) => {
 
 // --- REUSABLE INFO MODAL ---
 const InfoModal = ({ title, content, onClose }) => (
-  <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 backdrop-blur-md animate-in fade-in p-6">
+  <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-md animate-in fade-in p-6">
     <div className="glass-card w-full max-w-md rounded-3xl p-8 border border-white/10 shadow-2xl relative max-h-[80vh] flex flex-col">
       <button
         onClick={onClose}
@@ -403,8 +406,31 @@ function App() {
     if (authStage === 'pin_setup') {
       // Setting up new PIN
       const fullPhone = `${country.dial}${phoneNumber}`;
-      // Ideally update this during registration, but we can hold it in state and send with profile
-      setAuthStage('profile');
+
+      // If Resetting, we ALREADY have a profile. Just update PIN and Login.
+      // Check both State AND LocalStorage
+      if (isResettingPin || localStorage.getItem('zhatn_reset_mode') === 'true') {
+        try {
+          const { error } = await supabase.from('profiles').update({ secret_pin: enteredPin }).eq('phone', fullPhone);
+          if (error) throw error;
+
+          showNotification("Success", "Security PIN updated!", 'success');
+
+          // Fetch and Login immediately
+          const { data: userData } = await supabase.from('profiles').select('*').eq('phone', fullPhone).single();
+          loginUser(userData);
+
+          // Cleanup
+          setIsResettingPin(false);
+          localStorage.removeItem('zhatn_reset_mode');
+        } catch (err) {
+          console.error(err);
+          showNotification("Error", "Failed to update PIN", 'error');
+        }
+      } else {
+        // New Registration -> Go to Profile Creation
+        setAuthStage('profile');
+      }
     } else if (authStage === 'pin_entry') {
       // Verifying existing PIN
       const fullPhone = `${country.dial}${phoneNumber}`;
@@ -431,6 +457,12 @@ function App() {
 
     const fullPhone = `${country.dial}${phoneNumber}`;
 
+    // 0. SECURITY: Block Resets for Hardcoded Admins ("Seed Accounts")
+    if (ADMIN_NUMBERS.some(num => fullPhone.endsWith(num))) {
+      showNotification("Security Restriction", "This account cannot be reset via the app. Please contact the system administrator.", 'error');
+      return;
+    }
+
     // 1. Verify Name matches Phone
     try {
       const { data, error } = await supabase
@@ -449,7 +481,11 @@ function App() {
         // Success! Send OTP
         const randomCode = Math.floor(1000 + Math.random() * 9000).toString();
         setGeneratedOtp(randomCode);
+
+        // Use LocalStorage for robustness against reloads during flow
         setIsResettingPin(true);
+        localStorage.setItem('zhatn_reset_mode', 'true');
+
         setAuthStage('otp');
         showNotification("Security Verified", `Reset code: ${randomCode}`, 'otp');
         setVerificationUsername(''); // Clear security field
@@ -480,6 +516,28 @@ function App() {
     } else {
       setAuthStage('pin_setup'); // New users set PIN first
     }
+  };
+
+  // --- RESEND OTP TIMER ---
+  const [resendTimer, setResendTimer] = useState(0);
+
+  useEffect(() => {
+    let interval;
+    if (resendTimer > 0) {
+      interval = setInterval(() => setResendTimer(prev => prev - 1), 1000);
+    }
+    return () => clearInterval(interval);
+  }, [resendTimer]);
+
+  const handleResendOtp = async () => {
+    if (resendTimer > 0) return;
+
+    // Simulate API Call / Generation
+    const randomCode = Math.floor(1000 + Math.random() * 9000).toString();
+    setGeneratedOtp(randomCode);
+    setOtp(['', '', '', '']); // Clear input
+    setResendTimer(30); // 30s cooldown
+    showNotification("Code Sent", `New code: ${randomCode}`, 'otp');
   };
 
 
@@ -657,17 +715,48 @@ function App() {
     if (confirm("Are you sure you want to log out?")) {
       if (user) updateOnlineStatus(user.phone, false);
 
-      // Clear all persistence
+      // 1. Clear Persistence
       localStorage.removeItem('zhatn_user');
-      localStorage.removeItem('supabase.auth.token'); // Just in case
+      localStorage.removeItem('supabase.auth.token');
 
-      // Force UI Reset
+      // 2. Reset AUTH and VIEW State
       setUser(null);
-      setMessages([]);
+      setView('auth');
+      setAuthStage('phone');
+      setPhoneNumber('');
+      setOtp(['', '', '', '']);
+      setPin(['', '', '', '']);
+      setGeneratedOtp(null);
+      setIsResettingPin(false);
+      setVerificationUsername('');
+
+      // 3. Reset DATA State
+      setMyChats([]);
       setContacts([]);
       setActiveChat(null);
+      setMessages([]);
+      setInputText('');
+      setSearchTerm('');
 
-      // Force Page Reload to Ensure Clean State
+      // 4. Reset UI and MEDIA State
+      setNotification(null);
+      setIsEditingProfile(false);
+      setIsBroadcasting(false);
+      setContextMenuContact(null);
+      setIsRecording(false);
+
+      // Clear Refs
+      if (mediaRecorderRef.current && mediaRecorderRef.current.stream) {
+        mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      }
+      mediaRecorderRef.current = null;
+      audioChunksRef.current = [];
+
+      setProfileName('');
+      setGender(null);
+      setUserAvatar(null);
+
+      // Force Reload to guarantee clean state
       window.location.reload();
     }
   };
@@ -677,65 +766,76 @@ function App() {
   const [myChats, setMyChats] = useState([]); // Users with chat history
 
   // 1. Fetch people I've actually talked to
+  // 1. Fetch people I've actually talked to (Enhanced with Unread & Sort)
   const fetchMyChats = async (currentUser) => {
     const myPhone = currentUser?.phone || user?.phone;
     if (!myPhone) return;
 
-    // Get all messages involving me
+    // A. Get all messages involving me (Optimized: Select specific fields)
     const { data: msgs } = await supabase
       .from('messages')
-      .select('sender_id, receiver_id')
+      .select('sender_id, receiver_id, created_at, read_status')
       .or(`sender_id.eq.${myPhone},receiver_id.eq.${myPhone}`)
       .order('created_at', { ascending: false });
 
     if (msgs) {
-      // Extract unique IDs that are NOT me
+      // B. Process Metadata (Unread Count & Last Message Time)
+      const contactMeta = {}; // { phone: { unread: 0, lastAt: '...' } }
       const uniqueIds = new Set();
+
       msgs.forEach(m => {
-        if (m.sender_id !== myPhone) uniqueIds.add(m.sender_id);
-        if (m.receiver_id !== myPhone) uniqueIds.add(m.receiver_id);
-      });
+        const otherId = m.sender_id === myPhone ? m.receiver_id : m.sender_id;
+        uniqueIds.add(otherId);
 
-      if (uniqueIds.size > 0) {
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('*, tick_color, role_badge')
-          .in('phone', Array.from(uniqueIds));
-
-        // PINNED CHATS: Robust Fetch using LIKE/OR logic (Contains check)
-        const { data: admins } = await supabase
-          .from('profiles')
-          .select('*, tick_color, role_badge')
-          .or(`phone.ilike.%${ADMIN_NUMBERS[0]}%,phone.ilike.%${ADMIN_NUMBERS[1]}%`);
-
-        let finalContacts = profiles || [];
-
-        if (admins) {
-          // Filter out admins from history to avoid duplicates (using loose check)
-          finalContacts = finalContacts.filter(p => !admins.some(a => a.phone === p.phone));
-          // Prepend admins
-          finalContacts = [...admins, ...finalContacts];
+        if (!contactMeta[otherId]) {
+          contactMeta[otherId] = { unread: 0, lastAt: m.created_at };
         }
 
-        setMyChats(finalContacts);
-        setContacts(finalContacts);
-      }
-    } else {
-      // Even if no history, show Admins
+        // Count Unread Incoming: (Sender is THEM, Receiver is ME, Status is Unread)
+        if (m.sender_id === otherId && m.receiver_id === myPhone && !m.read_status) {
+          contactMeta[otherId].unread++;
+        }
+      });
+
+      // C. Base Contacts (Admin fallback if empty) 
+      // We always start with Pinned Admins so they are available (but we will sort them too)
       const { data: admins } = await supabase
         .from('profiles')
         .select('*, tick_color, role_badge')
         .or(`phone.ilike.%${ADMIN_NUMBERS[0]}%,phone.ilike.%${ADMIN_NUMBERS[1]}%`);
 
-      if (admins) {
-        setMyChats(admins);
-        setContacts(admins);
-      } else {
-        setMyChats([]);
-        setContacts([]);
+      const adminIds = admins ? admins.map(a => a.phone) : [];
+
+      // Add Admins to uniqueIds to ensure they are fetched/merged
+      adminIds.forEach(id => uniqueIds.add(id));
+
+      if (uniqueIds.size > 0) {
+        // D. Fetch All Relevant Profiles
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('*, tick_color, role_badge')
+          .in('phone', Array.from(uniqueIds));
+
+        // E. Merge Data & Sort
+        let finalContacts = (profiles || []).map(p => ({
+          ...p,
+          unread_count: contactMeta[p.phone]?.unread || 0,
+          last_message_at: contactMeta[p.phone]?.lastAt || (adminIds.includes(p.phone) ? '2024-01-01' : 0) // Default old date for pinned if no msg
+        }));
+
+        // Sort: Latest Message First
+        // Note: This puts recently active chats ABOVE pinned admins if admins are inactive. 
+        // This addresses "make the chat to top if theres any message arriuve".
+        finalContacts.sort((a, b) => new Date(b.last_message_at) - new Date(a.last_message_at));
+
+        // Optional: Force Pinned Admins to top ONLY if they have NO history? 
+        // For now, pure time sort is what user asked for ("message arrive -> top").
+
+        setMyChats(finalContacts);
+        setContacts(finalContacts); // Initialize search list
       }
     }
-  }
+  };
 
 
 
@@ -872,10 +972,22 @@ function App() {
         .order('created_at', { ascending: true });
       if (data) {
         setMessages(data);
+
         // Mark incoming unread messages as read
         const unreadIds = data.filter(m => m.receiver_id === myId && !m.read_status).map(m => m.id);
+
         if (unreadIds.length > 0) {
+          // 1. Update Server
           await supabase.from('messages').update({ read_status: true }).in('id', unreadIds);
+
+          // 2. Update Local UI (Clear Badge Immediately)
+          setMyChats(prev => prev.map(c =>
+            c.phone === theirId ? { ...c, unread_count: 0 } : c
+          ));
+          // Update Contacts too if separate
+          setContacts(prev => prev.map(c =>
+            c.phone === theirId ? { ...c, unread_count: 0 } : c
+          ));
         }
       }
     };
@@ -1150,9 +1262,9 @@ function App() {
                   Agree & Continue
                 </button>
                 <p className="text-[10px] text-gray-600 mt-4">
-                  By tapping "Agree & Continue", you accept the <button onClick={() => setActiveInfoModal('terms')} className="text-red-400 hover:underline hover:text-red-300 transition-colors">Terms of Service</button> and <button onClick={() => setActiveInfoModal('privacy')} className="text-red-400 hover:underline hover:text-red-300 transition-colors">Privacy Policy</button>.
+                  By tapping "Agree & Continue", you accept the <button onClick={() => { console.log('Clicked Terms'); setActiveInfoModal('terms') }} className="text-red-400 hover:underline hover:text-red-300 transition-colors">Terms of Service</button> and <button onClick={() => { console.log('Clicked Privacy'); setActiveInfoModal('privacy') }} className="text-red-400 hover:underline hover:text-red-300 transition-colors">Privacy Policy</button>.
                   <br />
-                  <button onClick={() => setActiveInfoModal('help')} className="text-gray-500 mt-2 hover:text-gray-300 flex items-center justify-center gap-1 mx-auto w-fit border-b border-transparent hover:border-gray-500 transition-all">
+                  <button onClick={() => { console.log('Clicked Help'); setActiveInfoModal('help') }} className="text-gray-500 mt-2 hover:text-gray-300 flex items-center justify-center gap-1 mx-auto w-fit border-b border-transparent hover:border-gray-500 transition-all">
                     How does it work?
                   </button>
                 </p>
@@ -1192,46 +1304,49 @@ function App() {
           )}
 
           {authStage === 'verification_username' && (
-            <form onSubmit={handleVerifyUsername} className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div className="text-center space-y-2">
-                <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/20">
-                  <User className="w-8 h-8 text-red-500" />
+            <form onSubmit={handleVerifyUsername} className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 py-4">
+              <div className="text-center space-y-3">
+                <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-6 border border-red-500/20 shadow-[0_0_30px_rgba(220,38,38,0.2)]">
+                  <User className="w-10 h-10 text-red-500" />
                 </div>
-                <h2 className="text-2xl font-bold text-white">Security Check</h2>
-                <p className="text-gray-400 text-sm">
-                  To reset your PIN, please enter your <b>Username</b> (e.g. {activeChat?.username || "Dark Vibe"}).
+                <h2 className="text-3xl font-bold text-white tracking-tight">Security Check</h2>
+                <p className="text-gray-400 text-sm leading-relaxed px-4">
+                  To reset your PIN, please verify your identity by entering your <b>Username</b>.
                 </p>
               </div>
 
-              <input
-                type="text"
-                className="input-pill text-center text-lg tracking-wide w-full"
-                placeholder="Ex: Dark Vibe"
-                value={verificationUsername}
-                onChange={(e) => setVerificationUsername(e.target.value)}
-                autoFocus
-              />
+              <div className="space-y-4">
+                <input
+                  type="text"
+                  className="input-pill w-full text-center text-xl tracking-wide py-4 border-2 border-white/10 focus:border-red-500/50 bg-black/20"
+                  placeholder="Ex: Dark Vibe"
+                  value={verificationUsername}
+                  onChange={(e) => setVerificationUsername(e.target.value)}
+                  autoFocus
+                />
 
-              <button type="submit" className="btn-primary w-full py-3 rounded-xl font-bold">
-                Verify Identity
-              </button>
+                <button type="submit" className="btn-liquid w-full py-4 rounded-xl font-bold text-lg shadow-lg shadow-red-900/30">
+                  Verify Identity
+                </button>
+              </div>
 
-              <button
-                type="button"
-                onClick={() => setAuthStage('pin_entry')}
-                className="w-full text-sm text-gray-500 hover:text-white transition-colors"
-                style={{ marginBottom: '1rem' }}
-              >
-                Cancel
-              </button>
-
-              <div className="border-t border-white/10 pt-4 mt-2">
+              <div className="pt-2 text-center">
                 <button
                   type="button"
-                  onClick={() => window.open(`https://wa.me/${ADMIN_NUMBERS[0]}?text=I%20have%20trouble%20resetting%20my%20PIN.%20My%20phone%20number%20is%20${phoneNumber}`, '_blank')}
-                  className="flex items-center justify-center gap-2 w-full p-3 rounded-xl bg-green-500/10 hover:bg-green-500/20 text-green-400 transition-all border border-green-500/20"
+                  onClick={() => setAuthStage('pin_entry')}
+                  className="text-sm text-gray-500 hover:text-white transition-colors py-2"
                 >
-                  <MessageCircle className="w-4 h-4" /> Contact Support via WhatsApp
+                  Cancel & Return
+                </button>
+              </div>
+
+              <div className="border-t border-white/10 pt-6">
+                <button
+                  type="button"
+                  onClick={() => window.open(`https://wa.me/94717221225?text=I%20have%20trouble%20resetting%20my%20PIN.%20My%20phone%20number%20is%20${phoneNumber}`, '_blank')}
+                  className="flex items-center justify-center gap-2 w-full p-3 rounded-xl bg-green-500/5 hover:bg-green-500/10 text-green-400/80 hover:text-green-400 transition-all border border-green-500/10 hover:border-green-500/30 text-xs tracking-wide uppercase"
+                >
+                  <MessageCircle className="w-4 h-4" /> WhatsApp Support
                 </button>
               </div>
             </form>
@@ -1258,12 +1373,10 @@ function App() {
                     value={digit}
                     onChange={(e) => {
                       const val = e.target.value.replace(/\D/g, '');
-                      if (!val && !digit) return; // Allow backspace
-
+                      if (!val && !digit) return;
                       const newOtp = [...otp];
                       newOtp[i] = val.substring(val.length - 1);
                       setOtp(newOtp);
-
                       if (val && i < 3) document.getElementById(`otp-${i + 1}`).focus();
                     }}
                     onKeyDown={(e) => {
@@ -1273,6 +1386,20 @@ function App() {
                     }}
                   />
                 ))}
+              </div>
+
+              <div className="text-center">
+                {resendTimer > 0 ? (
+                  <p className="text-xs text-gray-500">Resend code in <span className="text-red-400 font-mono">{resendTimer}s</span></p>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleResendOtp}
+                    className="text-xs text-red-500 hover:text-red-400 hover:underline transition-all"
+                  >
+                    Resend Code?
+                  </button>
+                )}
               </div>
 
               <button type="submit" className="btn-primary w-full py-3 rounded-xl font-bold flex items-center justify-center gap-2">
@@ -1408,7 +1535,7 @@ function App() {
         {/* FOOTER (External) */}
         <div className="mt-6 text-center space-y-2 relative z-10">
           <p className="text-[10px] text-white/50 font-medium tracking-widest uppercase mb-2">Zhatn! - Future of Privacy</p>
-          <p className="text-[10px] text-white/40 font-light tracking-wider">v1.1</p>
+          <p className="text-[10px] text-white/40 font-light tracking-wider">v1.2</p>
           <p className="text-[10px] text-white/40 font-light">
             Deployed by <a href="https://darkvibelk.pages.dev/" target="_blank" rel="noopener noreferrer" className="font-medium text-white/60 hover:text-red-400 transition-colors">Dark Vibe</a>
           </p>
@@ -1440,6 +1567,17 @@ function App() {
             </div>
           </div>
         )}
+
+        {/* INFO MODAL - Auth View */}
+        {
+          activeInfoModal && (
+            <InfoModal
+              title={INFO_CONTENTS[activeInfoModal].title}
+              content={INFO_CONTENTS[activeInfoModal].content}
+              onClose={() => setActiveInfoModal(null)}
+            />
+          )
+        }
 
       </div>
     );
@@ -1557,7 +1695,14 @@ function App() {
                   {/* Visual Logic: Check if actually online (Heartbeat < 60s ago) */}
                   {contact.is_online && (new Date().getTime() - new Date(contact.last_seen || 0).getTime() < 60000) && <span className="text-[10px] text-green-500/70">Online</span>}
                 </div>
-                <p className="text-xs text-gray-500 truncate group-hover:text-gray-400">Tap to chat with {contact.username}</p>
+                <div className="flex justify-between items-center mt-0.5">
+                  <p className="text-xs text-gray-500 truncate group-hover:text-gray-400">Tap to chat with {contact.username}</p>
+                  {contact.unread_count > 0 && (
+                    <div className="bg-green-500 text-black text-[10px] font-bold px-1.5 min-w-[18px] h-[18px] flex items-center justify-center rounded-full shadow-sm animate-in zoom-in spin-in-3">
+                      {contact.unread_count}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* DELETE ICON (Long Press Only) */}
@@ -1870,7 +2015,7 @@ function App() {
           </div>
         )
       }
-      {/* INFO MODAL */}
+      {/* INFO MODAL - Moved to Root */}
       {
         activeInfoModal && (
           <InfoModal
@@ -1880,7 +2025,7 @@ function App() {
           />
         )
       }
-    </div >
+    </div>
   );
 }
 
